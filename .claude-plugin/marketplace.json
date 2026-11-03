@@ -1,0 +1,28 @@
+{
+  "name": "claude-crews",
+  "owner": {
+    "name": "Adam Krampl",
+    "url": "https://krampl.dev"
+  },
+  "metadata": {
+    "description": "Teams of Claude Code subagents with clear roles, a skeptic in every team, and model/effort routing per role.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "crew",
+      "source": "./plugins/crew",
+      "description": "Dev crew: planner, skeptic, coders, tester, reviewer, docs-writer, plus /crew:ship and /crew:check."
+    },
+    {
+      "name": "office",
+      "source": "./plugins/office",
+      "description": "Business crew for freelancers and small teams: research, quotes, pricing, outreach, copy, leads, job search and a knowledge base."
+    },
+    {
+      "name": "council",
+      "source": "./plugins/council",
+      "description": "Decision council: five members debate in rounds and vote, a moderator checks the evidence and tallies against a 60 % threshold."
+    }
+  ]
+}

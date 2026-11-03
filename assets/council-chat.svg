@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 607" width="760" height="607" role="img" aria-label="Animated council debate from a real run">
+<style>
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#59636e;--bub:#f6f8fa;--line:#d1d9e0}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--bub:#151b23;--line:#3d444d}}
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:var(--fg)}
+.bg{fill:var(--bg)} .bub{fill:var(--bub);stroke:var(--line)}
+.ini{font-size:13px;font-weight:700;fill:#fff;text-anchor:middle}
+.who{font-size:12.5px;font-weight:700} .head{font-size:14px;font-weight:600} .line{font-size:13px;fill:var(--muted)}
+.vote{font-size:12px;font-weight:700;text-anchor:middle} .top{font-size:12px;fill:var(--muted);letter-spacing:.04em}
+.b{opacity:0;animation-duration:20.0s;animation-iteration-count:infinite;animation-timing-function:ease-out}
+@media (prefers-reduced-motion: reduce){.b{animation:none;opacity:1}}
+@keyframes m0{0%,3.0%{opacity:0;transform:translateY(8px)}6.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m1{0%,14.5%{opacity:0;transform:translateY(8px)}17.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m2{0%,26.0%{opacity:0;transform:translateY(8px)}29.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m3{0%,37.5%{opacity:0;transform:translateY(8px)}40.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m4{0%,49.0%{opacity:0;transform:translateY(8px)}52.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m5{0%,60.5%{opacity:0;transform:translateY(8px)}63.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes m6{0%,72.0%{opacity:0;transform:translateY(8px)}75.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+</style>
+<rect class="bg" width="760" height="607" rx="12"/>
+<text x="20" y="34" class="top">#council · real run, excerpts · full transcript in examples/council-demo</text>
+<g class="b" style="animation-name:m0">
+<rect x="64" y="56" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="72" r="14" fill="#1f6feb"/>
+<text x="36" y="77" class="ini">Y</text>
+<text x="78" y="76" class="who" fill="#1f6feb">you</text>
+<text x="78" y="95" class="head">/council:vote --full Should Maya take the 6-month contract?</text>
+<text x="78" y="114" class="line">11 000 €/month for 6 months, but she must pause her 3-year client A.</text>
+</g>
+<g class="b" style="animation-name:m1">
+<rect x="64" y="130" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="146" r="14" fill="#1a7f37"/>
+<text x="36" y="151" class="ini">O</text>
+<text x="78" y="150" class="who" fill="#1a7f37">optimist</text>
+<text x="78" y="169" class="head">Take it, but negotiate the transition first.</text>
+<text x="78" y="188" class="line">+30 000 € gross in 6 months; payments work raises her rates.</text>
+<rect x="654" y="138" width="72" height="22" rx="11" fill="#1a7f37" opacity=".15"/>
+<text x="690" y="153" class="vote" fill="#1a7f37">YES 70</text>
+</g>
+<g class="b" style="animation-name:m2">
+<rect x="64" y="204" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="220" r="14" fill="#cf222e"/>
+<text x="36" y="225" class="ini">S</text>
+<text x="78" y="224" class="who" fill="#cf222e">skeptic</text>
+<text x="78" y="243" class="head">Not as set up. A will be lost, not paused.</text>
+<text x="78" y="262" class="line">A year without A costs 33 600 €, more than the whole gain.</text>
+<rect x="654" y="212" width="72" height="22" rx="11" fill="#cf222e" opacity=".15"/>
+<text x="690" y="227" class="vote" fill="#cf222e">NO 65</text>
+</g>
+<g class="b" style="animation-name:m3">
+<rect x="64" y="278" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="294" r="14" fill="#0969da"/>
+<text x="36" y="299" class="ini">E</text>
+<text x="78" y="298" class="who" fill="#0969da">engineer</text>
+<text x="78" y="317" class="head">Take it if A and B commit to a return path.</text>
+<text x="78" y="336" class="line">Low technical risk; the 3-week start is the danger.</text>
+<rect x="654" y="286" width="72" height="22" rx="11" fill="#1a7f37" opacity=".15"/>
+<text x="690" y="301" class="vote" fill="#1a7f37">YES 70</text>
+</g>
+<g class="b" style="animation-name:m4">
+<rect x="64" y="352" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="368" r="14" fill="#8250df"/>
+<text x="36" y="373" class="ini">C</text>
+<text x="78" y="372" class="who" fill="#8250df">client A</text>
+<text x="78" y="391" class="head">&quot;Maybe&quot; means I&#x27;ll replace you by month 3.</text>
+<text x="78" y="410" class="line">Keep 4–6 h/week for me and I stay.</text>
+<rect x="654" y="360" width="72" height="22" rx="11" fill="#1a7f37" opacity=".15"/>
+<text x="690" y="375" class="vote" fill="#1a7f37">YES 62</text>
+</g>
+<g class="b" style="animation-name:m5">
+<rect x="64" y="426" width="676" height="64" rx="10" class="bub"/>
+<circle cx="36" cy="442" r="14" fill="#cf222e"/>
+<text x="36" y="447" class="ini">S</text>
+<text x="78" y="446" class="who" fill="#cf222e">skeptic</text>
+<text x="78" y="465" class="head">Round 2 — correction: I counted A twice.</text>
+<text x="78" y="484" class="line">Losing A after the contract costs 16 800 €, not 33 600 €.</text>
+<rect x="654" y="434" width="72" height="22" rx="11" fill="#cf222e" opacity=".15"/>
+<text x="690" y="449" class="vote" fill="#cf222e">NO 55</text>
+</g>
+<g class="b" style="animation-name:m6">
+<rect x="64" y="500" width="676" height="83" rx="10" class="bub"/>
+<circle cx="36" cy="516" r="14" fill="#0e7490"/>
+<text x="36" y="521" class="ini">M</text>
+<text x="78" y="520" class="who" fill="#0e7490">moderator</text>
+<text x="78" y="539" class="head">PASSED · 4/5 YES (80 %) · weighted 82 %</text>
+<text x="78" y="558" class="line">Take it only with a paid bridge for A + a notice clause.</text>
+<text x="78" y="577" class="line">5 claims failed the evidence check and were dropped.</text>
+</g>
+</svg>

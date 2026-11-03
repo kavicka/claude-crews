@@ -1,0 +1,13 @@
+# 2. crew:skeptic (opus · xhigh)
+
+**Verdict:** GO WITH CHANGES
+
+**Objections**
+- 🟠 **Should change**: The plan changes money results on its own defaults, and the user said "A single string must keep working." The Goal narrows that to results "already whole, non-negative cents", and Q7 defaults to Yes. Q3 (compound or add) and Q6 (no stacking limit) are business decisions too. Evidence: `src/checkout.ts:46` today returns 445.5 for a 4455 cart, and the plan returns 446. My scratch run of the plan's rules turns GIFT25+SAVE5 on a 3000 cart into `[3000,3000,0,0]`, a free cart. Fix: put Q3, Q6 and Q7 to the user before step 1 instead of applying the bracketed defaults.
+- 🟠 **Should change**: Nothing in step 2 checks test #17 ("`as const` compiles"). Its done-when is "`npm test` is green". `package.json:6` runs `"vitest run"`, and vitest strips types without checking them. Only `"tsc --noEmit"` (`package.json:7`, tsconfig `include: ["src"]`) catches a type error in the test file. Fix: step 2 is done when both `npm test` and `npm run typecheck` pass.
+- 🟡 **Consider**: Step 1 can be "done" while rules 1-5 are all broken. Its done-when is typecheck plus the 4 existing tests, and none of those pass more than one code or check rounding or the cap (`checkout.test.ts:19-29`). Fix: make the test table step 1's acceptance, or have the tester write the table first so it fails, then let the coder make it pass.
+- 🟡 **Consider**: Rules 1 and 3 do more work than needed. `COUPONS.filter(c => validCodes.has(c.code))`, then putting percent coupons before fixed ones with a stable sort, gives deduplication, catalog order and no mutation of the caller's array at once. The new `qualifyingCents` parameter on the exported `discountFor` has one caller; the minimum check could stay in the loop instead.
+
+**Cheaper alternative:** Use additive stacking. Validate every code with `findCoupon`, sum `discountFor(c, subtotal)` over the unique coupons, then `Math.min(sum, subtotal)`. No sort, no running amount, no change to `discountFor`'s signature. Single-string output stays the same as today, fractional cents included, except that negative totals become 0. The cost is that Q3 flips to "add": WELCOME10+SUMMER15 gives 1100 instead of 1034.
+
+**Checked and fine:** re-ran the plan's rules in a scratch script. Expected values #2, 4, 5, 6, 7, 12, 13, 14 and 15 match the plan exactly; the #18 invariant loop shows 0 violations and no `-0` across all 80 cases. `discountFor` and `findCoupon` are used only in `checkout.ts`. `readonly string[]` narrowing with `Array.isArray` compiles on TS 5.6.3. `""` handling matches today. `Receipt` is unchanged.

@@ -1,0 +1,13 @@
+{
+  "name": "council",
+  "version": "1.0.0",
+  "description": "Decision council: optimist, skeptic, engineer, business and client agents debate a question in rounds and vote with confidence; a moderator checks the evidence and tallies against a 60 % threshold. Run with /council:vote. Every debate is logged to ~/knowledge/council.",
+  "author": {
+    "name": "Adam Krampl",
+    "url": "https://krampl.dev"
+  },
+  "homepage": "https://github.com/dzusill/claude-crews",
+  "repository": "https://github.com/dzusill/claude-crews",
+  "license": "MIT",
+  "keywords": ["decision", "debate", "voting", "devils-advocate", "council", "subagents"]
+}

@@ -1,0 +1,165 @@
+src/checkout.test.ts | 168 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/checkout.ts      |  44 ++++++++++++--
+ 2 files changed, 207 insertions(+), 5 deletions(-)
+
+--- Changes ---
+
+src/checkout.test.ts
+  @@ -27,4 +27,172 @@ describe("checkout", () => {
+  +
+  +  describe("stacking coupons", () => {
+  +    const JULY = new Date("2025-08-01");
+  +    const EXPIRED = new Date("2025-10-01");
+  +
+  +    // 1
+  +    it("treats a single string and a one-element array identically", () => {
+  +      const fromString = checkout(cart, "WELCOME10");
+  +      const fromArray = checkout(cart, ["WELCOME10"]);
+  +      expect(fromArray).toEqual(fromString);
+  +      expect(fromString.discountCents).toBe(440);
+  +    });
+  +
+  +    // 2
+  +    it("stacks a percent and a fixed coupon", () => {
+  +      expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual({
+  +        subtotalCents: 4400,
+  +        discountCents: 940,
+  +        taxCents: 692,
+  +        totalCents: 4152,
+  +      });
+  +    });
+  +
+  +    // 3
+  +    it("gives the same result regardless of code order", () => {
+  +      const reversed = checkout(cart, ["SAVE5", "WELCOME10"]);
+  +      expect(reversed).toEqual(checkout(cart, ["WELCOME10", "SAVE5"]));
+  +      expect(reversed.discountCents).toBe(940);
+  +    });
+  +
+  +    // 4
+  +    it("checks the minimum against the original subtotal, not the running amount", () => {
+  +      const receipt = checkout([{ sku: "x", priceCents: 3200, qty: 1 }], ["WELCOME10", "SAVE5"]);
+  +      expect(receipt.discountCents).toBe(820);
+  +      expect(receipt.totalCents).toBe(2856);
+  +    });
+  +
+  +    // 5
+  +    it("skips a coupon below its minimum without throwing", () => {
+  +      const receipt = checkout([{ sku: "x", priceCents: 2400, qty: 1 }], ["WELCOME10", "SAVE5"]);
+  +      expect(receipt.discountCents).toBe(240);
+  +    });
+  +
+  +    // 6
+  +    it("qualifies for a minimum at exactly the threshold", () => {
+  +      const receipt = checkout([{ sku: "x", priceCents: 3000, qty: 1 }], "SAVE5");
+  +      expect(receipt.discountCents).toBe(500);
+  +    });
+  +
+  +    // 7
+  +    it("compounds percent coupons instead of adding them", () => {
+  +      const receipt = checkout(cart, ["WELCOME10", "SUMMER15"], JULY);
+  +      expect(receipt.discountCents).toBe(1034);
+  +      expect(receipt.discountCents).not.toBe(1100);
+  +    });
+  +
+  +    // 8
+  +    it("rejects an expired coupon in a stack", () => {
+  +      expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], EXPIRED)).toThrow(
+  +        "Coupon expired: SUMMER15",
+  +      );
+  +    });
+  +
+  +    // 9
+  +    it("fails on the first unknown code in input order", () => {
+  +      expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon: NOPE");
+  +      expect(() => checkout(cart, ["NOPE", "BAD"])).toThrow("Unknown coupon: NOPE");
+  +    });
+  +
+  +    // 10
+  +    it("ignores duplicate codes", () => {
+  +      expect(checkout(cart, ["WELCOME10", "WELCOME10"]).discountCents).toBe(440);
+  +    });
+  +
+  +    // 11
+  +    it("treats empty inputs as no coupon", () => {
+  +      const plain = checkout(cart);
+  +      expect(checkout(cart, [])).toEqual(plain);
+  +      expect(checkout(cart, [""])).toEqual(plain);
+  +      expect(checkout(cart, "")).toEqual(plain);
+  +    });
+  +
+  +    // 12
+  +    it("rounds fractional percent discounts to whole cents", () => {
+  +      const single = [{ sku: "x", priceCents: 4455, qty: 1 }];
+  +      expect(checkout(single, "WELCOME10")).toEqual({
+  +        subtotalCents: 4455,
+  +        discountCents: 446,
+  +        taxCents: 802,
+  +        totalCents: 4811,
+  +      });
+  +      const stacked = checkout(single, ["WELCOME10", "SUMMER15"], JULY);
+  +      expect(stacked.discountCents).toBe(1047);
+  +      expect(stacked.totalCents).toBe(4090);
+  +    });
+  +
+  +    // 12b
+  +    it("applies percent coupons in catalog order regardless of input order", () => {
+  +      const single = [{ sku: "x", priceCents: 4405, qty: 1 }];
+  +      const reversed = checkout(single, ["SUMMER15", "WELCOME10"], JULY);
+  ... (68 lines truncated)
+  +168 -0
+
+src/checkout.ts
+  @@ -41,14 +41,48 @@ export function findCoupon(code: string, now: Date = new Date()): Coupon {
+  -export function discountFor(coupon: Coupon, amountCents: number): number {
+  -  if (coupon.minSubtotalCents && amountCents < coupon.minSubtotalCents) return 0;
+  -  return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+  +/**
+  + * Whole-cent discount of one coupon on `baseCents`, between 0 and `baseCents`.
+  + * The coupon's minimum is checked against `qualifyingCents` (the original subtotal when stacking).
+  + */
+  +export function discountFor(coupon: Coupon, baseCents: number, qualifyingCents = baseCents): number {
+  +  if (coupon.minSubtotalCents && qualifyingCents < coupon.minSubtotalCents) return 0;
+  +  return coupon.kind === "percent"
+  +    ? Math.round((baseCents * coupon.value) / 100)
+  +    : Math.min(coupon.value, baseCents);
+   }
+   
+  -export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
+  +/** A string becomes one code; "" is ignored. The caller's array is never mutated. */
+  +function normalizeCodes(codes?: string | readonly string[]): string[] {
+  +  const list = typeof codes === "string" ? [codes] : (codes ?? []);
+  +  return list.filter((code) => code !== "");
+  +}
+  +
+  +/**
+  + * Validates every code (first invalid one throws), then applies the unique coupons
+  + * percent-first in catalog order to a running amount, so input order never matters.
+  + */
+  +function stackedDiscount(codes: string[], subtotalCents: number, now: Date): number {
+  +  for (const code of codes) findCoupon(code, now);
+  +  const chosen = COUPONS.filter((c) => codes.includes(c.code));
+  +  const ordered = [
+  +    ...chosen.filter((c) => c.kind === "percent"),
+  +    ...chosen.filter((c) => c.kind === "fixed"),
+  +  ];
+  +  let runningCents = subtotalCents;
+  +  for (const coupon of ordered) {
+  +    runningCents -= discountFor(coupon, runningCents, subtotalCents);
+  +  }
+  +  return subtotalCents - runningCents;
+  +}
+  +
+  +export function checkout(
+  +  items: Item[],
+  +  codes?: string | readonly string[],
+  +  now: Date = new Date(),
+  +): Receipt {
+     const subtotalCents = subtotal(items);
+  -  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
+  +  const discountCents = stackedDiscount(normalizeCodes(codes), subtotalCents, now);
+     const afterDiscount = subtotalCents - discountCents;
+     const taxCents = Math.round(afterDiscount * TAX_RATE);
+     return {
+  +39 -5
+[full diff: rtk git diff --no-compact]

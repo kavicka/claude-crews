@@ -1,0 +1,13 @@
+{
+  "name": "office",
+  "version": "1.0.0",
+  "description": "Business crew for freelancers and small teams: researcher, quote-builder, pricing-analyst, outreach-writer, copywriter, lead-scout, job-scout and librarian agents, plus /office:setup, /office:quote, /office:outreach, /office:learn and the lead, site and job desks. Agents answer from your ~/knowledge base and never send, submit or publish anything.",
+  "author": {
+    "name": "Adam Krampl",
+    "url": "https://krampl.dev"
+  },
+  "homepage": "https://github.com/dzusill/claude-crews",
+  "repository": "https://github.com/dzusill/claude-crews",
+  "license": "MIT",
+  "keywords": ["freelance", "quotes", "pricing", "outreach", "copywriting", "leads", "jobs", "knowledge-base", "subagents"]
+}

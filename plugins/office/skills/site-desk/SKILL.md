@@ -1,0 +1,20 @@
+---
+name: site-desk
+description: Site health desk for the user's own websites listed in ~/knowledge/profile.md. Snapshots status codes, titles, canonicals, noindex, Lighthouse scores and (when an SEO data tool is connected) ranked keywords, compares with the last snapshot, and reports only regressions. Run on demand with /office:site-desk or weekly from a scheduled task.
+---
+
+# Site desk
+
+Sites: the **Sites** section of `~/knowledge/profile.md` (domain, repo path, markets). Override: $ARGUMENTS
+
+1. **Snapshot, in parallel per site** (one subagent per site, `model: sonnet`, `effort: low`):
+   - fetch the homepage and the key pages listed for the site: HTTP status, title, meta description, canonical, robots/noindex;
+   - Lighthouse for the homepage (a Lighthouse MCP tool, DataForSEO `on_page_lighthouse`, the PageSpeed Insights API, or `npx lighthouse` when available): performance, SEO, accessibility;
+   - ranked keywords count and top 10 positions per market when an SEO data tool is connected.
+   If SEO analysis agents are installed (for example `seo-technical`, `seo-drift`), use them for this step instead.
+2. **Compare** with the latest `~/knowledge/sites/<site>-*.md`. A regression is: a key page not returning 200, noindex or a missing title or canonical, Lighthouse performance or SEO down 10+ points, ranked keywords down 15 %+, a top-10 keyword leaving the top 10.
+3. **Write** `~/knowledge/sites/<site>-<YYYY-MM-DD>.md`: numbers, changes since last time, findings with evidence. On the first run, write the baseline and say so.
+4. **For each regression**, name the likely cause and the file to look at in the site's repo (read it, don't edit).
+5. **Report:** regressions per site in at most 4 lines, or one line "Site desk: no regressions" / "baseline created".
+
+Read-only: never edit repos, deploy or change search console settings.
