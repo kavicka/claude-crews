@@ -1,74 +1,70 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-label="crew:ship pipeline: planner, skeptic, your OK, coder, tester, reviewer, docs">
   <style>
-    :root { --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --card:#f6f8fa; --opus:#8250df; --sonnet:#0969da; --you:#1a7f37; --warn:#bc4c00; }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --card:#151b23; --opus:#ab7df8; --sonnet:#4493f8; --you:#3fb950; --warn:#f0883e; }
-    }
-    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--fg); }
-    .bg { fill: var(--bg); }
-    .card { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
-    .you { fill: var(--card); stroke: var(--you); stroke-width: 2.5; }
-    .title { font-size: 15px; font-weight: 600; }
-    .sub { font-size: 12px; fill: var(--muted); }
-    .opus { fill: var(--opus); font-size: 11.5px; font-weight: 600; }
-    .sonnet { fill: var(--sonnet); font-size: 11.5px; font-weight: 600; }
-    .youtxt { fill: var(--you); font-size: 11.5px; font-weight: 600; }
-    .arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; marker-end: url(#a); }
-    .loop { stroke: var(--warn); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#w); }
-    .looptxt { fill: var(--warn); font-size: 11.5px; }
-    .h { font-size: 13px; fill: var(--muted); letter-spacing: .04em; }
+    text { font-family: "Styrene B", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #F5F4EE; }
+    .serif { font-family: "Tiempos Headline", "Copernicus", Georgia, "Times New Roman", serif; }
+    .card { fill: #30302E; stroke: #45443F; stroke-width: 1.2; }
+    .you { fill: #30302E; stroke: #D97757; stroke-width: 2.2; }
+    .title { font-size: 17px; }
+    .sub { font-size: 12px; fill: #A8A59B; }
+    .opus { fill: #D97757; font-size: 11.5px; font-weight: 600; }
+    .sonnet { fill: #D4A27F; font-size: 11.5px; font-weight: 600; }
+    .youtxt { fill: #D97757; font-size: 11.5px; font-weight: 600; }
+    .arrow { stroke: #75736A; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    .loop { stroke: #D97757; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#w); }
+    .looptxt { fill: #D97757; font-size: 12px; }
+    .h { font-size: 13px; fill: #A8A59B; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   </style>
   <defs>
-    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8c959f"/></marker>
-    <marker id="w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d1782f"/></marker>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#75736A"/></marker>
+    <marker id="w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#D97757"/></marker>
   </defs>
-  <rect class="bg" width="960" height="300" rx="12"/>
+  <rect width="960" height="300" rx="14" fill="#262624"/>
   <text class="h" x="24" y="34">/crew:ship &lt;task&gt;</text>
 
   <rect class="card" x="24" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="40" y="88">planner</text>
+  <text class="title serif" x="40" y="88">planner</text>
   <text class="sub" x="40" y="108">maps files,</text>
   <text class="sub" x="40" y="124">blast radius</text>
   <text class="opus" x="40" y="143">opus · xhigh</text>
 
   <path class="arrow" d="M142 106 H162"/>
   <rect class="card" x="164" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="180" y="88">skeptic</text>
+  <text class="title serif" x="180" y="88">skeptic</text>
   <text class="sub" x="180" y="108">attacks the</text>
   <text class="sub" x="180" y="124">plan, evidence</text>
   <text class="opus" x="180" y="143">opus · xhigh</text>
 
   <path class="arrow" d="M282 106 H302"/>
   <rect class="you" x="304" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="320" y="88">your OK</text>
+  <text class="title serif" x="320" y="88">your OK</text>
   <text class="sub" x="320" y="108">plan + verdict</text>
   <text class="sub" x="320" y="124">in 5–10 lines</text>
   <text class="youtxt" x="320" y="143">checkpoint</text>
 
   <path class="arrow" d="M422 106 H442"/>
   <rect class="card" x="444" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="460" y="88">coder</text>
+  <text class="title serif" x="460" y="88">coder</text>
   <text class="sub" x="460" y="108">web / ui /</text>
   <text class="sub" x="460" y="124">plugin</text>
   <text class="opus" x="460" y="143">opus · high</text>
 
   <path class="arrow" d="M562 106 H582"/>
   <rect class="card" x="584" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="600" y="88">tester</text>
+  <text class="title serif" x="600" y="88">tester</text>
   <text class="sub" x="600" y="108">writes + runs</text>
   <text class="sub" x="600" y="124">tests only</text>
   <text class="sonnet" x="600" y="143">sonnet · high</text>
 
   <path class="arrow" d="M702 106 H722"/>
   <rect class="card" x="724" y="60" width="118" height="92" rx="10"/>
-  <text class="title" x="740" y="88">reviewer</text>
+  <text class="title serif" x="740" y="88">reviewer</text>
   <text class="sub" x="740" y="108">verdict with</text>
   <text class="sub" x="740" y="124">file:line</text>
   <text class="opus" x="740" y="143">opus · xhigh</text>
 
   <path class="arrow" d="M842 106 H862"/>
   <rect class="card" x="864" y="60" width="72" height="92" rx="10"/>
-  <text class="title" x="878" y="88">docs</text>
+  <text class="title serif" x="878" y="88">docs</text>
   <text class="sub" x="878" y="108">only if</text>
   <text class="sub" x="878" y="124">needed</text>
   <text class="sonnet" x="878" y="143">sonnet</text>

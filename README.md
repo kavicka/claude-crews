@@ -31,13 +31,13 @@ You only see the results, plus one checkpoint where you approve the plan.
 Inside Claude Code:
 
 ```text
-/plugin marketplace add dzusill/claude-crews
+/plugin marketplace add kavicka/claude-crews
 /plugin install crew@claude-crews
 /plugin install office@claude-crews
 /plugin install council@claude-crews
 ```
 
-Or from your shell: `claude plugin marketplace add dzusill/claude-crews`, then `claude plugin install crew@claude-crews` (and `office`, `council`). Restart Claude Code after installing.
+Or from your shell: `claude plugin marketplace add kavicka/claude-crews`, then `claude plugin install crew@claude-crews` (and `office`, `council`). Restart Claude Code after installing.
 
 Then, once:
 
@@ -169,3 +169,5 @@ Issues and PRs are welcome, especially new real-world examples with numbers, and
 ## License
 
 [MIT](LICENSE) © Adam Krampl
+
+Community project, not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.

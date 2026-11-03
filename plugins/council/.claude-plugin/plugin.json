@@ -6,8 +6,8 @@
     "name": "Adam Krampl",
     "url": "https://krampl.dev"
   },
-  "homepage": "https://github.com/dzusill/claude-crews",
-  "repository": "https://github.com/dzusill/claude-crews",
+  "homepage": "https://github.com/kavicka/claude-crews",
+  "repository": "https://github.com/kavicka/claude-crews",
   "license": "MIT",
   "keywords": ["decision", "debate", "voting", "devils-advocate", "council", "subagents"]
 }
