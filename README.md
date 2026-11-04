@@ -12,12 +12,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/council-chat.svg" width="760" alt="A real /council:vote run: five members debate, the skeptic corrects its own math, the moderator rules PASSED at 80 percent">
+  <img src="assets/bakery-council.svg" width="760" alt="A real /council:vote run for a bakery: five members vote no on online payments at launch, the skeptic finds a gap in round two, the moderator rejects the motion and lists six questions for the client">
 </p>
 
 One Claude answers fast and sounds sure. It doesn't argue with itself, it doesn't stop to ask about the business rule it just guessed, and nobody checks its numbers. **claude-crews** gives Claude Code three small teams that do: a dev crew that plans, gets challenged, codes, tests and reviews; an office crew for quotes, outreach and research; and a council that debates a decision in rounds and votes. Each agent runs on the model and effort its job needs: Opus at `xhigh` for review and security, Sonnet for research, Haiku for lookups.
 
-You only see the results, plus one checkpoint where you approve the plan.
+You see the results, and the agents stop to ask you whenever something is yours to decide: a business rule, a price, a scope.
 
 ## Meet the crew
 
@@ -56,14 +56,57 @@ Then, once:
 
 It creates `~/knowledge/` (your profile, rates, writing voice) from templates, interviews you to fill it in, and optionally installs the [model-routing rules](plugins/office/templates/model-routing.md) into `~/.claude/`. The crew plugin works without it.
 
-## Try it
+## One story: a bakery goes online
+
+A small family bakery takes 70 pre-orders a week by phone and Instagram and wants customers to order online and pick a time to collect. Its web developer, Lucia, runs all three crews, in the order a real project goes: decide, quote, build.
 
 ```text
-/crew:ship add rate limiting to the public contact form
-/council:vote --full Should I rewrite our Express API in NestJS this quarter?
-/office:quote one-page site for a bakery, Slovak + English, contact form to email
-/office:learn https://www.youtube.com/playlist?list=... what can I use from this in my workflow?
+/council:vote Should the bakery launch with online payments or start with pay-at-pickup?
+/office:quote one-page online ordering site for a bakery, Slovak + English, contact form to email
+/crew:ship add online ordering with pickup time slots to the bakery website
 ```
+
+These are real recorded runs. The bakery, Lucia and every number about them are made up; the agents' work is not. When an agent asked a question, the answer was written by the person recording the example, playing Lucia. The whole conversation of each run, every brief and every agent's answer, is in [examples/bakery](examples/bakery).
+
+```mermaid
+sequenceDiagram
+    actor You as You (Lucia)
+    participant Council as council
+    participant Office as office
+    participant Crew as crew
+    You->>Council: /council:vote online payments or pay at pickup?
+    Note over Council: 5 members argue in 2 rounds,<br/>the moderator checks every number
+    Council->>You: REJECTED 0/5 · ❓ six questions for the client
+    You->>Office: /office:quote … (with the client's answers)
+    Office->>You: ❓ six scope questions, each moves the price over 20 %
+    You->>Office: answers
+    Note over Office: builder drafts 3 600 €,<br/>analyst and skeptic object, builder revises
+    Office->>You: quote in Slovak, 3 500 € · ❓ two checks only you can do
+    You->>Crew: /crew:ship add online ordering with pickup slots
+    Note over Crew: planner plans, skeptic attacks the plan
+    Crew->>You: ❓ checkpoint: slot capacity A or B?
+    You->>Crew: B, 8 per slot, cut-off 14:00 the day before
+    Note over Crew: coder and tester build,<br/>reviewer checks the diff
+    Crew->>You: code, tests and a summary; nothing committed
+```
+
+| Step | What the agents settled among themselves | What they asked you | What you got | Run |
+|---|---|---|---|---|
+| **1 · Decide** `/council:vote` | All five voted against payments at launch. In round 2 the skeptic noticed that everyone had relied on a cake deposit that is taken in the shop, so online cake orders would skip it. The moderator threw out six claims, including a card fee off by half. | Six questions to put to the client before quoting: VAT, content date, last December's no-shows, eKasa, English, cake deposits | Verdict, a recommendation with an optional cake-deposit line, and the full debate in `~/knowledge/council` | 8 min · $2.53 |
+| **2 · Quote** `/office:quote` | The builder priced 3 600 €. The pricing analyst said the hours were short against a similar past project and caught a wrong VAT rate in Lucia's own pricing file. The skeptic showed that cancelled orders would still get baked. The builder cut scope instead of discounting. | Six scope questions before any work; then two things only Lucia can check | A quote in Slovak: phase 1 at 3 500 €, optional phase 2, payment terms, timeline | 13 min · $3.01 |
+| **3 · Build** `/crew:ship` | The planner planned slots with a capacity of 4. The skeptic showed capacity kept in memory resets on every restart, that anyone could fill every slot, and an Express 4 crash. CREW_SETTLED | One decision at the checkpoint: drop slot capacity (A) or persist orders (B) | CREW_GOT | CREW_RUN |
+
+<details>
+<summary><b>Step 2 as a chat</b>: the questions, the objections and the revised quote</summary>
+<p align="center"><img src="assets/bakery-quote.svg" width="760" alt="The quote workflow as a chat: six scope questions, Lucia's answers, a 3 600 euro draft, the analyst's and skeptic's objections, the revised 3 500 euro quote, and a question only Lucia can answer"></p>
+</details>
+
+<details>
+<summary><b>Step 3 as a chat</b>: the plan, the skeptic, your decision, the review</summary>
+<p align="center"><img src="assets/bakery-crew.svg" width="760" alt="CREW_ALT"></p>
+</details>
+
+More to try: `/crew:check` before a commit, `/office:outreach <company>`, `/office:learn <playlist> what can I use from this?`
 
 ## Does the crew pay off? Measured
 
@@ -103,7 +146,7 @@ It ends with a summary and a proposed commit message. Nothing is committed, push
 
 Five members (optimist, **skeptic**, engineer, business, client) answer independently, then read each other and rebut the strongest counter-argument by name. The **moderator** (opus · xhigh) doesn't vote: it spot-checks the claims the decision hinges on, throws out the ones that fail, and passes the motion only when both the YES share and the confidence-weighted share reach 60 %.
 
-In the [real run above](examples/council-demo) the moderator rejected five confident numbers, including the skeptic's own headline argument, and the verdict came with conditions and a next step.
+In the [bakery run](examples/bakery/runs/council) the moderator rejected six claims, among them a card fee off by half and a date the simulated client invented, and ended with the questions to ask before quoting. In [another run](examples/council-demo) it rejected five confident numbers, including the skeptic's own headline argument.
 
 **Good questions:** "Take this 6-month contract?", "Charge 4 000 or 6 000 for this project?", "Postgres or DynamoDB for this service?", "Rewrite or refactor?"
 **Bad questions:** facts ("what's the capital of France"), tasks ("write a tweet"), anything with one right answer you could look up.
@@ -174,7 +217,7 @@ plugins/
   council/  agents: optimist, skeptic, engineer, business, client, moderator
             skills: vote
 scripts/    check_plugins.py (repo rules, run in CI), avatars.py, council_chat.py
-examples/   coupon-demo (vibe vs crew, with hidden tests), council-demo (full debate transcript)
+examples/   bakery (one story through all three crews, recorded), coupon-demo (benchmark with hidden tests), council-demo
 ```
 
 23 agents, 10 workflows.

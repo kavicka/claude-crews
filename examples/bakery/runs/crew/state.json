@@ -1,0 +1,12 @@
+{
+  "phases": [
+    {
+      "phase": 1,
+      "session_id": "b2103a0a-8ed3-4cb0-9196-7ec4818a3ece",
+      "exit_code": 0,
+      "wall_seconds": 513.8,
+      "cost_usd": 1.4580411999999998,
+      "num_turns": 4
+    }
+  ]
+}
