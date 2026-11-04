@@ -1,0 +1,17 @@
+{
+  "title": "Kvások & syn — family bakery in Ružinov",
+  "tagline": "Sourdough bread, pastries and cakes to order.",
+  "menuHeading": "What we bake",
+  "hoursHeading": "Opening hours",
+  "days": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  "closed": "closed",
+  "contactHeading": "Write to us",
+  "contactIntro": "For now we take orders by phone on +421 2 123 456 78 or through this form.",
+  "name": "Name",
+  "email": "Email",
+  "message": "Message",
+  "send": "Send",
+  "sent": "Thank you, we'll get back to you soon.",
+  "invalid": "Please check your name, email and message.",
+  "otherLang": "Slovensky"
+}

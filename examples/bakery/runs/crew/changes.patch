@@ -1,0 +1,4154 @@
+diff --git a/.gitignore b/.gitignore
+index c2658d7..902b281 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1 +1,2 @@
+ node_modules/
++data/
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 2e38254..dfd03d0 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1,23 +1,33 @@
+ # kvasok-site
+ 
+-One-page website of Kvások & syn, a fictional family bakery (claude-crews example). Express + TypeScript, server-rendered HTML, no database yet.
++One-page website of Kvások & syn, a fictional family bakery (claude-crews example). Express + TypeScript, server-rendered HTML, no database (orders live in a JSON file). Visitors can contact the shop and order bread and cakes for pickup, paid at pickup.
+ 
+ ## Commands
+ 
+ - `npm test`: vitest + supertest (`test/`)
+ - `npm run typecheck`: `tsc --noEmit`
+ - `npm run dev`: dev server on :3000 (stop it when done)
++- `npm start`: same server with `NODE_ENV=production` (Express only; `index.ts` still uses `ConsoleMailer`)
++- Env: `PORT` (3000), `ORDERS_FILE` (`data/orders.json`, `data/` is gitignored), `SHOP_EMAIL`
+ 
+ ## Map
+ 
+-- `src/app.ts`: routes (`GET /`, `POST /contact`); `createApp({ mailer })` so tests inject a fake mailer
++- `src/app.ts`: routes `GET /` (also `?order=ID` confirmation), `POST /contact`, `POST /order`; `createApp({ mailer, orders, now })` so tests inject a fake mailer, store and clock
+ - `src/render.ts`: the page as a template string; always pass user input through `escapeHtml`
+-- `src/menu.ts`: products and prices in cents; `src/hours.ts`: opening hours and time zone
++- `src/menu.ts`: products and prices in cents; `src/hours.ts`: opening hours, `CLOSED_DATES` (holidays), time zone
++- `src/slots.ts`: slot generation, cut-off, business-rule constants
++- `src/orders.ts`: `Order`, `OrderStore`, `InMemoryOrderStore`, `FileOrderStore`, pricing, shop/customer mail builders
+ - `src/i18n.ts` + `src/locales/{sk,en}.json`: every visible string exists in both locales
+ - `src/mailer.ts`: `Mailer` interface; `ConsoleMailer` in development
+ 
+ ## Rules
+ 
+ - Validate every form with zod; on error re-render the page with status 400 and the escaped values.
+-- Times are local to `Europe/Bratislava`.
+-- Prices are integers in cents.
++- Times are local to `Europe/Bratislava`. Slot ids are local wall time `"YYYY-MM-DDTHH:MM"`. `localNow` in `slots.ts` is the only time zone conversion; never use `Date#getDay`/`getHours` or add 86400000 (use `addDays`).
++- Prices are integers in cents and come from `MENU` on the server only, never from the form.
++- Business rules are constants in `slots.ts`: 8 orders per 30-minute slot, 14-day horizon, cut-off at min(14:00, closing time) on the last open day before the pickup day, cakes need 2 days' notice and max 3, max 20 per item, max 3 open future orders per email.
++- `OrderStore` methods stay synchronous, and `reserve()` must check and insert atomically.
++- Express 4 does not catch async rejections: async handlers wrap everything in try/catch and call `next(err)`.
++- Both forms have a honeypot field; the order form also has a resubmission token (same token and same content is not a new order).
++- `data/orders.json` is read at startup only. Hand-edit it (e.g. set `"status": "cancelled"` to free a slot) only while the server is stopped, or the next order overwrites it.
++- `FileOrderStore` is single-process only.
+diff --git a/package.json b/package.json
+index 765cc2b..e90a524 100644
+--- a/package.json
++++ b/package.json
+@@ -4,7 +4,7 @@
+   "type": "module",
+   "scripts": {
+     "dev": "tsx watch src/index.ts",
+-    "start": "tsx src/index.ts",
++    "start": "NODE_ENV=production tsx src/index.ts",
+     "test": "vitest run",
+     "typecheck": "tsc --noEmit"
+   },
+diff --git a/public/style.css b/public/style.css
+index e3e1a9a..9abce78 100644
+--- a/public/style.css
++++ b/public/style.css
+@@ -5,6 +5,12 @@ h1 { font-size: 2rem; margin: 0 0 .25rem; }
+ .menu li { display: flex; justify-content: space-between; padding: .5rem 0; border-bottom: 1px solid #e8dcc8; }
+ form { display: grid; gap: .75rem; }
+ label { display: grid; gap: .25rem; }
+-input, textarea, button { font: inherit; padding: .6rem; border-radius: .4rem; border: 1px solid #c9b9a3; }
++input, textarea, select, button { font: inherit; padding: .6rem; border-radius: .4rem; border: 1px solid #c9b9a3; }
+ button { background: #c46a5a; color: #fff; border: 0; min-height: 44px; }
+ [role="alert"] { color: #9b2c1f; }
++fieldset { border: 1px solid #e8dcc8; border-radius: .4rem; display: grid; gap: .5rem; }
++.qty { grid-template-columns: 1fr 5rem; align-items: center; }
++.qty span { display: flex; justify-content: space-between; gap: .5rem; }
++.hint { font-size: .9rem; margin: 0; color: #6b5d52; }
++.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
++.confirmation { background: #f1e7d6; border-radius: .4rem; padding: .25rem 1rem; margin-bottom: 1rem; }
+diff --git a/src/app.ts b/src/app.ts
+index 604796d..2c5625c 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1,37 +1,160 @@
+ import express from "express";
+ import { z } from "zod";
+-import { pickLang } from "./i18n.js";
++import { pickLang, type Lang } from "./i18n.js";
+ import { SHOP_EMAIL, type Mailer } from "./mailer.js";
+-import { renderHome } from "./render.js";
++import { MENU } from "./menu.js";
++import {
++  customerOrderMail,
++  FORM_TOKEN_RE,
++  InMemoryOrderStore,
++  newOrderId,
++  ORDER_ID_RE,
++  priceLines,
++  shopOrderMail,
++  type Order,
++  type OrderStore,
++  type ReserveResult,
++} from "./orders.js";
++import { HONEYPOT_FIELD, renderErrorPage, renderHome, type OrderErrorCode, type SlotOption } from "./render.js";
++import {
++  addDays,
++  CAKE_NOTICE_DAYS,
++  generateSlots,
++  localNow,
++  localSlotId,
++  MAX_CAKES,
++  MAX_OPEN_ORDERS_PER_EMAIL,
++  MAX_QTY,
++  SLOT_CAPACITY,
++  SLOT_ID_RE,
++} from "./slots.js";
++
++const SINGLE_LINE = /^[^\r\n]*$/;
+ 
+ const ContactForm = z.object({
+-  name: z.string().trim().min(1).max(100),
++  name: z.string().regex(SINGLE_LINE).trim().min(1).max(100),
+   email: z.string().trim().email().max(200),
+   message: z.string().trim().min(1).max(2000),
+ });
+ 
++/** A quantity field: blank or missing means 0, otherwise a whole number 0..MAX_QTY. */
++const Qty = z
++  .string()
++  .trim()
++  .regex(/^\d{0,3}$/)
++  .optional()
++  .transform((v) => (v ? Number(v) : 0))
++  .pipe(z.number().int().min(0).max(MAX_QTY));
++
++/** The order form posts flat fields: name, email, phone, note, slot and qty_<productId>. */
++const OrderForm = z.object({
++  fields: z.object({
++    name: z.string().regex(SINGLE_LINE).trim().min(1).max(100),
++    email: z.string().trim().email().max(200),
++    phone: z.string().regex(SINGLE_LINE).trim().max(30).optional(),
++    note: z.string().trim().max(500).optional(),
++    slot: z.string().regex(SLOT_ID_RE),
++    token: z.string().regex(FORM_TOKEN_RE),
++  }),
++  qty: z.object(Object.fromEntries(MENU.map((p) => [`qty_${p.id}`, Qty])) as Record<string, typeof Qty>),
++});
++
++/** Submitted string values, for re-rendering the form after an error (render escapes them). */
++function formValues(body: unknown): Record<string, string> {
++  const values: Record<string, string> = {};
++  if (body && typeof body === "object") {
++    for (const [key, value] of Object.entries(body)) if (typeof value === "string") values[key] = value;
++  }
++  return values;
++}
++
++/** Parses an order submission against the form schema and prices it from MENU. Business rules come later. */
++function parseOrder(body: unknown, lang: Lang, now: Date): Order | undefined {
++  const parsed = OrderForm.safeParse({ fields: body, qty: body });
++  if (!parsed.success) return undefined;
++  const { fields, qty } = parsed.data;
++
++  const quantities = Object.fromEntries(MENU.map((p) => [p.id, qty[`qty_${p.id}`] ?? 0]));
++  const { lines, totalCents } = priceLines(quantities);
++  return {
++    id: newOrderId(),
++    slot: fields.slot,
++    lines,
++    totalCents,
++    name: fields.name,
++    email: fields.email,
++    phone: fields.phone || undefined,
++    note: fields.note || undefined,
++    lang,
++    status: "open",
++    createdAt: now.toISOString(),
++    token: fields.token,
++  };
++}
++
++/** The business rules that do not depend on other orders (capacity and email limits are checked in `reserve`). */
++function orderRuleError(order: Order, now: Date): OrderErrorCode | undefined {
++  if (order.lines.length === 0) return "empty";
++  if (!generateSlots(now).some((s) => s.id === order.slot)) return "slotGone";
++  const cakes = order.lines
++    .filter((l) => MENU.find((p) => p.id === l.productId)?.kind === "cake")
++    .reduce((sum, l) => sum + l.qty, 0);
++  if (cakes > MAX_CAKES) return "cakeMax";
++  const pickupDate = order.slot.slice(0, 10);
++  if (cakes > 0 && pickupDate < addDays(localNow(now).date, CAKE_NOTICE_DAYS)) return "cakeNotice";
++  return undefined;
++}
++
++/** True when the hidden spam-trap field was filled in (or sent more than once). */
++function honeypotFilled(body: unknown): boolean {
++  if (!body || typeof body !== "object") return false;
++  const value: unknown = (body as Record<string, unknown>)[HONEYPOT_FIELD];
++  return typeof value === "string" ? value.trim() !== "" : value !== undefined;
++}
++
+ export interface AppDeps {
+   mailer: Mailer;
++  orders?: OrderStore;
++  now?: () => Date;
+ }
+ 
+-export function createApp({ mailer }: AppDeps) {
++export function createApp({ mailer, orders = new InMemoryOrderStore(), now: clock = () => new Date() }: AppDeps) {
+   const app = express();
+   app.use(express.urlencoded({ extended: false, limit: "20kb" }));
+   app.use(express.static("public"));
+ 
++  function slotOptions(now: Date): SlotOption[] {
++    const counts = orders.countBySlot();
++    return generateSlots(now).map((s) => ({ ...s, full: (counts[s.id] ?? 0) >= SLOT_CAPACITY }));
++  }
++
+   app.get("/", (req, res) => {
+     const lang = pickLang(req.query.lang);
+-    res.type("html").send(renderHome(lang, { sent: req.query.sent === "1" }));
++    const id = req.query.order;
++    const order = typeof id === "string" && ORDER_ID_RE.test(id) ? orders.get(id) : undefined;
++    res.type("html").send(
++      renderHome(lang, {
++        sent: req.query.sent === "1",
++        slots: slotOptions(clock()),
++        confirmed: order?.status === "open" ? order : undefined,
++      }),
++    );
+   });
+ 
+   app.post("/contact", async (req, res, next) => {
+     const lang = pickLang(req.query.lang);
+-    const parsed = ContactForm.safeParse(req.body);
+-    if (!parsed.success) {
+-      res.status(400).type("html").send(renderHome(lang, { error: true, values: req.body }));
+-      return;
+-    }
+     try {
++      if (honeypotFilled(req.body)) {
++        // Looks like a bot: answer exactly like a success, send nothing.
++        res.redirect(303, `/?lang=${lang}&sent=1#contact`);
++        return;
++      }
++      const parsed = ContactForm.safeParse(req.body);
++      if (!parsed.success) {
++        const values = formValues(req.body);
++        res.status(400).type("html").send(renderHome(lang, { error: true, values, slots: slotOptions(clock()) }));
++        return;
++      }
+       const { name, email, message } = parsed.data;
+       await mailer.send({ to: SHOP_EMAIL, replyTo: email, subject: `Web: správa od ${name}`, text: message });
+       res.redirect(303, `/?lang=${lang}&sent=1#contact`);
+@@ -40,5 +163,105 @@ export function createApp({ mailer }: AppDeps) {
+     }
+   });
+ 
++  app.post("/order", async (req, res, next) => {
++    const lang = pickLang(req.query.lang);
++    const now = clock();
++    const reject = (error: OrderErrorCode, status = 400, { freshToken = false } = {}) => {
++      const values = formValues(req.body);
++      if (freshToken) delete values.token; // render then issues a new one
++      res.status(status).type("html").send(renderHome(lang, { slots: slotOptions(now), order: { error, values } }));
++    };
++
++    try {
++      if (honeypotFilled(req.body)) {
++        // Looks like a bot: answer like a success, but reserve and send nothing.
++        res.redirect(303, `/?lang=${lang}#order`);
++        return;
++      }
++      const order = parseOrder(req.body, lang, now);
++      if (!order) {
++        reject("invalid");
++        return;
++      }
++      // A resubmission of an order already placed (double click, reload, retry just after the cut-off) goes
++      // straight to its confirmation, before the time-dependent checks could refuse it. `reserve` checks again.
++      const existing = orders.findDuplicate(order);
++      if (existing) {
++        res.redirect(303, `/?lang=${lang}&order=${existing.id}#order`);
++        return;
++      }
++      const ruleError = orderRuleError(order, now);
++      if (ruleError) {
++        reject(ruleError);
++        return;
++      }
++      while (orders.get(order.id)) order.id = newOrderId();
++
++      let result: ReserveResult;
++      try {
++        result = orders.reserve(order, {
++          capacity: SLOT_CAPACITY,
++          maxOpenPerEmail: MAX_OPEN_ORDERS_PER_EMAIL,
++          nowSlot: localSlotId(localNow(now)),
++        });
++      } catch (err) {
++        console.error(`order ${order.id}: could not be stored`, err);
++        reject("failed", 500);
++        return;
++      }
++      if (typeof result === "object") {
++        // Same form submitted again (double click, retry): show the order already placed, send nothing.
++        res.redirect(303, `/?lang=${lang}&order=${result.order.id}#order`);
++        return;
++      }
++      if (result !== "ok") {
++        reject(result === "slotFull" ? "slotTaken" : "tooManyOrders");
++        return;
++      }
++
++      try {
++        await mailer.send(shopOrderMail(order, SHOP_EMAIL));
++      } catch (err) {
++        console.error(`order ${order.id}: shop mail failed, cancelling the order`, err);
++        // The shop never heard of this order, so it must not hold a place in the slot.
++        let cancelled = true;
++        try {
++          orders.cancel(order.id);
++        } catch (cancelErr) {
++          cancelled = false;
++          console.error(`order ${order.id}: could not cancel after shop mail failed`, cancelErr);
++        }
++        // If the order is still open, a retry with the same token would only find it again,
++        // so hand out a fresh token and let the retry be a new order.
++        reject("failed", 500, { freshToken: !cancelled });
++        return;
++      }
++
++      try {
++        await mailer.send(customerOrderMail(order));
++      } catch (err) {
++        console.error(`order ${order.id}: customer confirmation mail failed`, err);
++      }
++
++      res.redirect(303, `/?lang=${lang}&order=${order.id}#order`);
++    } catch (err) {
++      next(err);
++    }
++  });
++
++  // Last resort for anything unexpected: log it, show a generic page, never a stack trace.
++  // Client errors raised by middleware (e.g. 413 from the body parser) keep their status.
++  const errorHandler: express.ErrorRequestHandler = (err, req, res, next) => {
++    if (res.headersSent) {
++      next(err);
++      return;
++    }
++    const status: unknown = (err as { status?: unknown } | null)?.status;
++    const code = typeof status === "number" && status >= 400 && status < 500 ? status : 500;
++    if (code === 500) console.error(`${req.method} ${req.path} failed`, err);
++    res.status(code).type("html").send(renderErrorPage(pickLang(req.query.lang)));
++  };
++  app.use(errorHandler);
++
+   return app;
+ }
+diff --git a/src/hours.ts b/src/hours.ts
+index 444eb69..87e1a78 100644
+--- a/src/hours.ts
++++ b/src/hours.ts
+@@ -9,4 +9,10 @@ export const OPENING_HOURS: Record<number, { open: string; close: string } | nul
+   6: { open: "07:00", close: "18:00" },
+ };
+ 
++/**
++ * Extra closed days (holidays), local dates "YYYY-MM-DD". No pickup slots on these days.
++ * The client will confirm further holiday hours.
++ */
++export const CLOSED_DATES: readonly string[] = ["2026-12-25", "2026-12-26", "2027-01-01", "2027-01-06"];
++
+ export const TIME_ZONE = "Europe/Bratislava";
+diff --git a/src/i18n.ts b/src/i18n.ts
+index ff3b841..65886e6 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -13,3 +13,8 @@ export function pickLang(value: unknown): Lang {
+ export function t(lang: Lang): Messages {
+   return MESSAGES[lang];
+ }
++
++/** Replaces {placeholders} in a message; unknown placeholders are left as they are. */
++export function fill(template: string, vars: Record<string, string | number>): string {
++  return template.replace(/\{(\w+)\}/g, (match, key: string) => (key in vars ? String(vars[key]) : match));
++}
+diff --git a/src/index.ts b/src/index.ts
+index 4c53adc..151c899 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,7 +1,11 @@
+ import { createApp } from "./app.js";
+ import { ConsoleMailer } from "./mailer.js";
++import { FileOrderStore } from "./orders.js";
+ 
+ const port = Number(process.env.PORT ?? 3000);
+-createApp({ mailer: new ConsoleMailer() }).listen(port, () => {
++createApp({
++  mailer: new ConsoleMailer(),
++  orders: new FileOrderStore(process.env.ORDERS_FILE ?? "data/orders.json"),
++}).listen(port, () => {
+   console.log(`Kvások & syn on http://localhost:${port}`);
+ });
+diff --git a/src/locales/en.json b/src/locales/en.json
+index 28304b1..d3f0b40 100644
+--- a/src/locales/en.json
++++ b/src/locales/en.json
+@@ -6,12 +6,45 @@
+   "days": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+   "closed": "closed",
+   "contactHeading": "Write to us",
+-  "contactIntro": "For now we take orders by phone on +421 2 123 456 78 or through this form.",
++  "contactIntro": "Questions or a large cake order? Call +421 2 123 456 78 or write to us.",
+   "name": "Name",
+   "email": "Email",
+   "message": "Message",
+   "send": "Send",
+   "sent": "Thank you, we'll get back to you soon.",
+   "invalid": "Please check your name, email and message.",
+-  "otherLang": "Slovensky"
++  "otherLang": "Slovensky",
++  "orderHeading": "Order for pickup",
++  "orderIntro": "Order online and pick up at the shop from tomorrow. You pay when you pick up.",
++  "pickup": "Pickup time",
++  "chooseSlot": "Choose a time",
++  "fullyBooked": "fully booked",
++  "phone": "Phone (optional)",
++  "note": "Note (optional)",
++  "cakeInfo": "Cakes need {days} days' notice, at most {max} per order. Bigger cakes are ordered by phone.",
++  "privacy": "We use your details only to prepare and hand over this order.",
++  "placeOrder": "Place order",
++  "noSlots": "No pickup times are available online right now. Please call us on +421 2 123 456 78.",
++  "orderErrors": {
++    "invalid": "Please check the quantities (whole numbers 0–20), your name, email and pickup time.",
++    "empty": "Please choose at least one item.",
++    "slotGone": "This pickup time is no longer available. Please choose another one.",
++    "slotTaken": "This pickup time has just filled up. Please choose another one.",
++    "cakeNotice": "Cakes need {days} days' notice. Please choose a later pickup day.",
++    "cakeMax": "At most {max} cakes per order. For more, please call us.",
++    "tooManyOrders": "You already have {max} open orders. Please call us if you need another one.",
++    "failed": "Sorry, something went wrong and your order has NOT been placed. Please try again, or call us on +421 2 123 456 78."
++  },
++  "honeypot": "Leave this field empty",
++  "errorPageTitle": "Something went wrong",
++  "errorPageText": "Sorry, we could not process your request. Please try again, or call us on +421 2 123 456 78.",
++  "backHome": "Back to the home page",
++  "orderConfirmed": "Thank you! Your order number is {id}.",
++  "orderPickup": "Pickup: {slot}",
++  "total": "Total",
++  "payAtPickup": "You pay when you pick up.",
++  "mailSubject": "Kvások & syn: order {id}, pickup {slot}",
++  "mailIntro": "Thank you for your order. We will have it ready for you.",
++  "mailOrderNumber": "Order number: {id}",
++  "mailFooter": "If anything changes, please call us on +421 2 123 456 78."
+ }
+diff --git a/src/locales/sk.json b/src/locales/sk.json
+index 2adad80..0f2a28a 100644
+--- a/src/locales/sk.json
++++ b/src/locales/sk.json
+@@ -6,12 +6,45 @@
+   "days": ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"],
+   "closed": "zatvorené",
+   "contactHeading": "Napíšte nám",
+-  "contactIntro": "Objednávky zatiaľ prijímame telefonicky na 02 123 456 78 alebo cez tento formulár.",
++  "contactIntro": "Máte otázku alebo objednávku väčšej torty? Zavolajte na 02 123 456 78 alebo nám napíšte.",
+   "name": "Meno",
+   "email": "E-mail",
+   "message": "Správa",
+   "send": "Odoslať",
+   "sent": "Ďakujeme, ozveme sa vám čo najskôr.",
+   "invalid": "Skontrolujte, prosím, meno, e-mail a správu.",
+-  "otherLang": "English"
++  "otherLang": "English",
++  "orderHeading": "Objednávka na vyzdvihnutie",
++  "orderIntro": "Objednajte online a vyzdvihnite si v predajni od zajtra. Platíte pri vyzdvihnutí.",
++  "pickup": "Čas vyzdvihnutia",
++  "chooseSlot": "Vyberte čas",
++  "fullyBooked": "obsadené",
++  "phone": "Telefón (nepovinné)",
++  "note": "Poznámka (nepovinné)",
++  "cakeInfo": "Torty objednávajte aspoň {days} dni vopred, najviac {max} na objednávku. Väčšie torty objednávajte telefonicky.",
++  "privacy": "Vaše údaje použijeme iba na prípravu a odovzdanie tejto objednávky.",
++  "placeOrder": "Objednať",
++  "noSlots": "Momentálne nie je online voľný žiadny čas vyzdvihnutia. Zavolajte nám, prosím, na 02 123 456 78.",
++  "orderErrors": {
++    "invalid": "Skontrolujte, prosím, počty kusov (celé čísla 0–20), meno, e-mail a čas vyzdvihnutia.",
++    "empty": "Vyberte, prosím, aspoň jednu položku.",
++    "slotGone": "Tento čas vyzdvihnutia už nie je dostupný. Vyberte, prosím, iný.",
++    "slotTaken": "Tento čas vyzdvihnutia sa práve zaplnil. Vyberte, prosím, iný.",
++    "cakeNotice": "Torty objednávajte aspoň {days} dni vopred. Vyberte, prosím, neskorší deň.",
++    "cakeMax": "Najviac {max} torty na objednávku. Ak chcete viac, zavolajte nám.",
++    "tooManyOrders": "Už máte {max} otvorené objednávky. Ak potrebujete ďalšiu, zavolajte nám.",
++    "failed": "Prepáčte, niečo sa pokazilo a vaša objednávka NEBOLA prijatá. Skúste to, prosím, znova alebo nám zavolajte na 02 123 456 78."
++  },
++  "honeypot": "Toto pole nevypĺňajte",
++  "errorPageTitle": "Niečo sa pokazilo",
++  "errorPageText": "Prepáčte, vašu požiadavku sme nemohli spracovať. Skúste to, prosím, znova alebo nám zavolajte na 02 123 456 78.",
++  "backHome": "Späť na úvodnú stránku",
++  "orderConfirmed": "Ďakujeme! Číslo vašej objednávky je {id}.",
++  "orderPickup": "Vyzdvihnutie: {slot}",
++  "total": "Spolu",
++  "payAtPickup": "Platíte pri vyzdvihnutí.",
++  "mailSubject": "Kvások & syn: objednávka {id}, vyzdvihnutie {slot}",
++  "mailIntro": "Ďakujeme za objednávku. Pripravíme vám ju.",
++  "mailOrderNumber": "Číslo objednávky: {id}",
++  "mailFooter": "Ak sa niečo zmení, zavolajte nám, prosím, na 02 123 456 78."
+ }
+diff --git a/src/menu.ts b/src/menu.ts
+index 09522a4..069c4f1 100644
+--- a/src/menu.ts
++++ b/src/menu.ts
+@@ -18,6 +18,10 @@ export const MENU: Product[] = [
+   { id: "medovnik", name: { sk: "Medovník (celá torta)", en: "Honey cake (whole)" }, priceCents: 3800, kind: "cake" },
+ ];
+ 
++export function productName(productId: string, lang: Lang): string {
++  return MENU.find((p) => p.id === productId)?.name[lang] ?? productId;
++}
++
+ export function formatPrice(cents: number, lang: Lang): string {
+   return new Intl.NumberFormat(lang === "sk" ? "sk-SK" : "en-GB", { style: "currency", currency: "EUR" }).format(
+     cents / 100,
+diff --git a/src/orders.ts b/src/orders.ts
+new file mode 100644
+index 0000000..5f531fc
+--- /dev/null
++++ b/src/orders.ts
+@@ -0,0 +1,279 @@
++import { randomBytes } from "node:crypto";
++import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
++import { dirname } from "node:path";
++import { z } from "zod";
++import { fill, t, type Lang } from "./i18n.js";
++import type { Mail } from "./mailer.js";
++import { formatPrice, MENU, productName } from "./menu.js";
++import { formatSlot, SLOT_ID_RE } from "./slots.js";
++
++export type OrderStatus = "open" | "cancelled";
++
++export interface OrderLine {
++  productId: string;
++  qty: number;
++  unitPriceCents: number;
++}
++
++export interface Order {
++  /** 8 uppercase hex characters. */
++  id: string;
++  /** Slot id "YYYY-MM-DDTHH:MM", local time. */
++  slot: string;
++  lines: OrderLine[];
++  totalCents: number;
++  name: string;
++  email: string;
++  phone?: string;
++  note?: string;
++  lang: Lang;
++  status: OrderStatus;
++  /** ISO instant. */
++  createdAt: string;
++  /** Random token of the form that placed the order; a resubmission with the same token is not a new order. */
++  token?: string;
++}
++
++export const ORDER_ID_RE = /^[0-9A-F]{8}$/;
++export const FORM_TOKEN_RE = /^[0-9a-f]{32}$/;
++
++export function newOrderId(): string {
++  return randomBytes(4).toString("hex").toUpperCase();
++}
++
++/** One-time token rendered into each order form, used to recognise double submissions. */
++export function newFormToken(): string {
++  return randomBytes(16).toString("hex");
++}
++
++/** Prices the requested quantities from MENU (the only source of prices). Zero quantities are left out. */
++export function priceLines(quantities: Record<string, number>): { lines: OrderLine[]; totalCents: number } {
++  const lines = MENU.filter((p) => (quantities[p.id] ?? 0) > 0).map((p) => ({
++    productId: p.id,
++    qty: quantities[p.id]!,
++    unitPriceCents: p.priceCents,
++  }));
++  return { lines, totalCents: lines.reduce((sum, l) => sum + l.qty * l.unitPriceCents, 0) };
++}
++
++function lineText(line: OrderLine, lang: Lang): string {
++  return `${line.qty}× ${productName(line.productId, lang)} — ${formatPrice(line.qty * line.unitPriceCents, lang)}`;
++}
++
++/** Mail for the shop, always in Slovak. The subject carries no user input. */
++export function shopOrderMail(order: Order, to: string): Mail {
++  const text = [
++    `Objednávka ${order.id}`,
++    `Vyzdvihnutie: ${formatSlot(order.slot, "sk")}`,
++    "",
++    ...order.lines.map((l) => lineText(l, "sk")),
++    `Spolu: ${formatPrice(order.totalCents, "sk")} (platí pri vyzdvihnutí)`,
++    "",
++    `Meno: ${order.name}`,
++    `E-mail: ${order.email}`,
++    `Telefón: ${order.phone ?? "—"}`,
++    `Jazyk: ${order.lang}`,
++    "",
++    "Poznámka:",
++    order.note ?? "—",
++  ].join("\n");
++  return { to, replyTo: order.email, subject: `Objednávka ${order.id} — ${formatSlot(order.slot, "sk")}`, text };
++}
++
++/** Confirmation for the customer, in their language. Leaves out the free-text note. */
++export function customerOrderMail(order: Order): Mail {
++  const m = t(order.lang);
++  const slot = formatSlot(order.slot, order.lang);
++  const text = [
++    m.mailIntro,
++    "",
++    fill(m.mailOrderNumber, { id: order.id }),
++    fill(m.orderPickup, { slot }),
++    "",
++    ...order.lines.map((l) => lineText(l, order.lang)),
++    `${m.total}: ${formatPrice(order.totalCents, order.lang)}`,
++    m.payAtPickup,
++    "",
++    m.mailFooter,
++  ].join("\n");
++  return { to: order.email, subject: fill(m.mailSubject, { id: order.id, slot }), text };
++}
++
++export interface ReserveLimits {
++  /** Max open orders per slot. */
++  capacity: number;
++  /** Max open future orders per email address. */
++  maxOpenPerEmail: number;
++  /** Slot id of the current local time; orders in slots before it no longer count against the email limit. */
++  nowSlot: string;
++}
++
++/** "duplicate": the same form was already submitted as an open order (see `isResubmission`); nothing was inserted. */
++export type ReserveResult = "ok" | "slotFull" | "emailLimit" | { status: "duplicate"; order: Order };
++
++/** What a resubmission must share with the stored order to count as the same order. */
++export type OrderContent = Pick<Order, "token" | "slot" | "email" | "lines">;
++
++/**
++ * Synchronous on purpose: `reserve` checks the limits and inserts in one step, so two requests
++ * can never both take the last place in a slot.
++ */
++export interface OrderStore {
++  reserve(order: Order, limits: ReserveLimits): ReserveResult;
++  /** The open order this submission repeats, if any (same rule as the duplicate check in `reserve`). */
++  findDuplicate(order: OrderContent): Order | undefined;
++  cancel(id: string): void;
++  get(id: string): Order | undefined;
++  /** Number of open orders per slot id. */
++  countBySlot(): Record<string, number>;
++}
++
++function sameEmail(a: string, b: string): boolean {
++  return a.trim().toLowerCase() === b.trim().toLowerCase();
++}
++
++function lineKey(lines: OrderLine[]): string {
++  return lines
++    .map((l) => `${l.productId}:${l.qty}`)
++    .sort()
++    .join(",");
++}
++
++/**
++ * A resubmission of the same form (double click, reload, retry) has the same token AND the same content.
++ * Same token with a changed slot, email or items (e.g. after pressing Back and editing) is a new order.
++ */
++export function isResubmission(stored: Order, candidate: OrderContent): boolean {
++  return (
++    stored.status === "open" &&
++    candidate.token !== undefined &&
++    stored.token === candidate.token &&
++    stored.slot === candidate.slot &&
++    sameEmail(stored.email, candidate.email) &&
++    lineKey(stored.lines) === lineKey(candidate.lines)
++  );
++}
++
++export class InMemoryOrderStore implements OrderStore {
++  protected orders: Order[];
++
++  constructor(orders: Order[] = []) {
++    this.orders = orders;
++  }
++
++  reserve(order: Order, limits: ReserveLimits): ReserveResult {
++    // Checked first: the original submission may itself have taken the last place in the slot.
++    const duplicate = this.findDuplicate(order);
++    if (duplicate) return { status: "duplicate", order: duplicate };
++    const open = this.orders.filter((o) => o.status === "open");
++    if (open.filter((o) => o.slot === order.slot).length >= limits.capacity) return "slotFull";
++    const byEmail = open.filter((o) => o.slot > limits.nowSlot && sameEmail(o.email, order.email));
++    if (byEmail.length >= limits.maxOpenPerEmail) return "emailLimit";
++    this.orders.push(structuredClone(order));
++    return "ok";
++  }
++
++  findDuplicate(candidate: OrderContent): Order | undefined {
++    const order = this.orders.find((o) => isResubmission(o, candidate));
++    return order && structuredClone(order);
++  }
++
++  cancel(id: string): void {
++    const order = this.orders.find((o) => o.id === id);
++    if (order) order.status = "cancelled";
++  }
++
++  get(id: string): Order | undefined {
++    const order = this.orders.find((o) => o.id === id);
++    return order && structuredClone(order);
++  }
++
++  countBySlot(): Record<string, number> {
++    const counts: Record<string, number> = {};
++    for (const o of this.orders) if (o.status === "open") counts[o.slot] = (counts[o.slot] ?? 0) + 1;
++    return counts;
++  }
++}
++
++const StoredOrder = z.object({
++  id: z.string().regex(ORDER_ID_RE),
++  slot: z.string().regex(SLOT_ID_RE),
++  lines: z.array(
++    z.object({ productId: z.string(), qty: z.number().int().positive(), unitPriceCents: z.number().int().nonnegative() }),
++  ),
++  totalCents: z.number().int().nonnegative(),
++  name: z.string(),
++  email: z.string(),
++  phone: z.string().optional(),
++  note: z.string().optional(),
++  lang: z.enum(["sk", "en"]),
++  status: z.enum(["open", "cancelled"]),
++  createdAt: z.string(),
++  // Optional so files written before form tokens existed still load.
++  token: z.string().regex(FORM_TOKEN_RE).optional(),
++});
++
++function loadOrders(path: string): Order[] {
++  let raw: string;
++  try {
++    raw = readFileSync(path, "utf8");
++  } catch (err) {
++    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
++    throw err;
++  }
++  let data: unknown;
++  try {
++    data = JSON.parse(raw);
++  } catch (err) {
++    throw new Error(`Orders file ${path} is not valid JSON: ${(err as Error).message}`);
++  }
++  const parsed = z.array(StoredOrder).safeParse(data);
++  if (!parsed.success) {
++    const issue = parsed.error.issues[0];
++    throw new Error(`Orders file ${path} is not a valid list of orders: ${issue?.path.join(".")} ${issue?.message}`);
++  }
++  return parsed.data;
++}
++
++/**
++ * Keeps orders in memory and rewrites the whole JSON file (pretty-printed, so the shop can edit it by hand)
++ * after every change. Hand edits are picked up on restart; edit only while the server is stopped,
++ * otherwise the next order overwrites them.
++ */
++export class FileOrderStore extends InMemoryOrderStore {
++  constructor(private readonly path: string) {
++    super(loadOrders(path));
++  }
++
++  override reserve(order: Order, limits: ReserveLimits): ReserveResult {
++    const result = super.reserve(order, limits);
++    if (result === "ok") {
++      try {
++        this.save();
++      } catch (err) {
++        this.orders = this.orders.filter((o) => o.id !== order.id);
++        throw err;
++      }
++    }
++    return result;
++  }
++
++  override cancel(id: string): void {
++    const order = this.orders.find((o) => o.id === id);
++    if (!order || order.status === "cancelled") return;
++    super.cancel(id);
++    try {
++      this.save();
++    } catch (err) {
++      order.status = "open";
++      throw err;
++    }
++  }
++
++  private save(): void {
++    mkdirSync(dirname(this.path), { recursive: true });
++    const tmp = `${this.path}.${process.pid}.tmp`;
++    writeFileSync(tmp, `${JSON.stringify(this.orders, null, 2)}\n`);
++    renameSync(tmp, this.path);
++  }
++}
+diff --git a/src/render.ts b/src/render.ts
+index 4b27837..7677c79 100644
+--- a/src/render.ts
++++ b/src/render.ts
+@@ -1,6 +1,16 @@
+ import { OPENING_HOURS } from "./hours.js";
+-import { t, type Lang } from "./i18n.js";
+-import { formatPrice, MENU } from "./menu.js";
++import { fill, t, type Lang, type Messages } from "./i18n.js";
++import { formatPrice, MENU, productName } from "./menu.js";
++import { FORM_TOKEN_RE, newFormToken, type Order } from "./orders.js";
++import {
++  CAKE_NOTICE_DAYS,
++  formatDate,
++  formatSlot,
++  MAX_CAKES,
++  MAX_OPEN_ORDERS_PER_EMAIL,
++  MAX_QTY,
++  type Slot,
++} from "./slots.js";
+ 
+ export function escapeHtml(value: string): string {
+   return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+@@ -10,6 +20,111 @@ export interface PageState {
+   sent?: boolean;
+   error?: boolean;
+   values?: { name?: string; email?: string; message?: string };
++  /** Pickup slots on offer, with full ones marked. */
++  slots?: SlotOption[];
++  /** Order form state after a rejected submission. */
++  order?: { error: OrderErrorCode; values: Record<string, string> };
++  /** Order to confirm at the top of the order section. */
++  confirmed?: Order;
++}
++
++export interface SlotOption extends Slot {
++  full: boolean;
++}
++
++export type OrderErrorCode = keyof Messages["orderErrors"];
++
++/** Name of the spam trap field. People never see it; bots that fill every input do. */
++export const HONEYPOT_FIELD = "website";
++
++function honeypot(m: Messages): string {
++  return `<label class="hp" aria-hidden="true">${escapeHtml(m.honeypot)} <input name="${HONEYPOT_FIELD}" tabindex="-1" autocomplete="off" value=""></label>`;
++}
++
++function renderConfirmation(order: Order, lang: Lang, m: Messages): string {
++  const lines = order.lines
++    .map(
++      (l) =>
++        `<li><span>${l.qty}× ${escapeHtml(productName(l.productId, lang))}</span> <strong>${formatPrice(l.qty * l.unitPriceCents, lang)}</strong></li>`,
++    )
++    .join("");
++  return `<div role="status" class="confirmation">
++<p>${escapeHtml(fill(m.orderConfirmed, { id: order.id }))}</p>
++<p>${escapeHtml(fill(m.orderPickup, { slot: formatSlot(order.slot, lang) }))}</p>
++<ul class="menu">${lines}<li><span>${m.total}</span> <strong>${formatPrice(order.totalCents, lang)}</strong></li></ul>
++<p>${escapeHtml(m.payAtPickup)}</p>
++</div>`;
++}
++
++function renderSlotSelect(slots: SlotOption[], selectedId: string | undefined, lang: Lang, m: Messages): string {
++  const byDate = new Map<string, SlotOption[]>();
++  for (const s of slots) byDate.set(s.date, [...(byDate.get(s.date) ?? []), s]);
++  const groups = [...byDate].map(([date, daySlots]) => {
++    const options = daySlots
++      .map((s) => {
++        const attrs = s.full ? " disabled" : s.id === selectedId ? " selected" : "";
++        return `<option value="${s.id}"${attrs}>${s.time}${s.full ? ` — ${m.fullyBooked}` : ""}</option>`;
++      })
++      .join("");
++    return `<optgroup label="${escapeHtml(formatDate(date, lang))}">${options}</optgroup>`;
++  });
++  return `<select name="slot" required><option value="">${m.chooseSlot}</option>${groups.join("")}</select>`;
++}
++
++function renderOrderSection(lang: Lang, m: Messages, state: PageState): string {
++  const v = state.order?.values ?? {};
++  const error = state.order?.error;
++  const slots = state.slots ?? [];
++  // Keep the submitted token on re-render so a retry is still recognised; replace a malformed one.
++  const token = v.token && FORM_TOKEN_RE.test(v.token) ? v.token : newFormToken();
++
++  const quantities = MENU.map((p) => {
++    const field = `qty_${p.id}`;
++    const max = p.kind === "cake" ? MAX_CAKES : MAX_QTY;
++    return `<label class="qty"><span>${escapeHtml(p.name[lang])} <strong>${formatPrice(p.priceCents, lang)}</strong></span>
++<input name="${field}" type="number" inputmode="numeric" min="0" max="${max}" step="1" value="${escapeHtml(v[field] ?? "0")}"></label>`;
++  }).join("\n");
++
++  const form = slots.some((s) => !s.full)
++    ? `<form method="post" action="/order?lang=${lang}#order">
++<fieldset><legend>${m.menuHeading}</legend>
++${quantities}
++</fieldset>
++<p class="hint">${escapeHtml(fill(m.cakeInfo, { days: CAKE_NOTICE_DAYS, max: MAX_CAKES }))}</p>
++<label>${m.pickup} ${renderSlotSelect(slots, v.slot, lang, m)}</label>
++<label>${m.name} <input name="name" required maxlength="100" autocomplete="name" value="${escapeHtml(v.name ?? "")}"></label>
++<label>${m.email} <input name="email" type="email" required maxlength="200" autocomplete="email" value="${escapeHtml(v.email ?? "")}"></label>
++<label>${m.phone} <input name="phone" type="tel" maxlength="30" autocomplete="tel" value="${escapeHtml(v.phone ?? "")}"></label>
++<label>${m.note} <textarea name="note" maxlength="500">${escapeHtml(v.note ?? "")}</textarea></label>
++<p class="hint">${escapeHtml(m.privacy)}</p>
++${honeypot(m)}
++<input type="hidden" name="token" value="${escapeHtml(token)}">
++<button>${m.placeOrder}</button>
++</form>`
++    : `<p role="status">${escapeHtml(m.noSlots)}</p>`;
++
++  const errorText = error
++    ? fill(m.orderErrors[error], {
++        days: CAKE_NOTICE_DAYS,
++        max: error === "tooManyOrders" ? MAX_OPEN_ORDERS_PER_EMAIL : MAX_CAKES,
++      })
++    : "";
++
++  return `<section id="order"><h2>${m.orderHeading}</h2><p>${escapeHtml(m.orderIntro)}</p>
++${state.confirmed ? renderConfirmation(state.confirmed, lang, m) : ""}
++${error ? `<p role="alert">${escapeHtml(errorText)}</p>` : ""}
++${form}</section>`;
++}
++
++/** Minimal page for unexpected errors: no page state, no user input, no error details. */
++export function renderErrorPage(lang: Lang): string {
++  const m = t(lang);
++  return `<!doctype html>
++<html lang="${lang}">
++<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
++<title>${escapeHtml(m.errorPageTitle)}</title><link rel="stylesheet" href="/style.css"></head>
++<body><main><h1>${escapeHtml(m.errorPageTitle)}</h1><p role="alert">${escapeHtml(m.errorPageText)}</p>
++<p><a href="/?lang=${lang}">${escapeHtml(m.backHome)}</a></p></main></body></html>`;
+ }
+ 
+ export function renderHome(lang: Lang, state: PageState = {}): string {
+@@ -37,6 +152,7 @@ export function renderHome(lang: Lang, state: PageState = {}): string {
+ <main>
+ <section><h2>${m.menuHeading}</h2><ul class="menu">${menu}</ul></section>
+ <section><h2>${m.hoursHeading}</h2><ul>${hours}</ul></section>
++${renderOrderSection(lang, m, state)}
+ <section id="contact"><h2>${m.contactHeading}</h2><p>${escapeHtml(m.contactIntro)}</p>
+ ${state.sent ? `<p role="status">${m.sent}</p>` : ""}
+ ${state.error ? `<p role="alert">${m.invalid}</p>` : ""}
+@@ -44,6 +160,7 @@ ${state.error ? `<p role="alert">${m.invalid}</p>` : ""}
+ <label>${m.name} <input name="name" required value="${escapeHtml(v.name ?? "")}"></label>
+ <label>${m.email} <input name="email" type="email" required value="${escapeHtml(v.email ?? "")}"></label>
+ <label>${m.message} <textarea name="message" required>${escapeHtml(v.message ?? "")}</textarea></label>
++${honeypot(m)}
+ <button>${m.send}</button>
+ </form></section>
+ </main>
+diff --git a/src/slots.ts b/src/slots.ts
+new file mode 100644
+index 0000000..209a770
+--- /dev/null
++++ b/src/slots.ts
+@@ -0,0 +1,132 @@
++import { CLOSED_DATES, OPENING_HOURS, TIME_ZONE } from "./hours.js";
++import type { Lang } from "./i18n.js";
++
++/*
++ * Pickup slots. Everything here works on local wall time in TIME_ZONE:
++ * a date is "YYYY-MM-DD", a time is minutes since local midnight and a slot id is "YYYY-MM-DDTHH:MM".
++ * `localNow` is the only place that converts an instant to local time; all calendar math uses UTC dates
++ * so the server's own time zone never matters.
++ */
++
++export const SLOT_MINUTES = 30;
++export const SLOT_CAPACITY = 8;
++export const HORIZON_DAYS = 14;
++export const CUTOFF_TIME = "14:00";
++export const CAKE_NOTICE_DAYS = 2;
++export const MAX_QTY = 20;
++export const MAX_CAKES = 3;
++export const MAX_OPEN_ORDERS_PER_EMAIL = 3;
++/** How far back `cutoffFor` looks for an open day before giving up. */
++const CUTOFF_LOOKBACK_DAYS = 14;
++
++export const SLOT_ID_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/;
++
++export interface LocalTime {
++  date: string;
++  minutes: number;
++}
++
++export interface Slot {
++  id: string;
++  date: string;
++  time: string;
++}
++
++const localParts = new Intl.DateTimeFormat("en-CA", {
++  timeZone: TIME_ZONE,
++  hourCycle: "h23",
++  year: "numeric",
++  month: "2-digit",
++  day: "2-digit",
++  hour: "2-digit",
++  minute: "2-digit",
++});
++
++export function localNow(now: Date): LocalTime {
++  const p: Record<string, string> = {};
++  for (const part of localParts.formatToParts(now)) p[part.type] = part.value;
++  return { date: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) };
++}
++
++function utcDate(date: string): Date {
++  const [y, m, d] = date.split("-").map(Number);
++  return new Date(Date.UTC(y!, m! - 1, d!));
++}
++
++export function addDays(date: string, days: number): string {
++  const d = utcDate(date);
++  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + days)).toISOString().slice(0, 10);
++}
++
++export function toMinutes(time: string): number {
++  const [h, m] = time.split(":").map(Number);
++  return h! * 60 + m!;
++}
++
++export function formatMinutes(minutes: number): string {
++  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
++}
++
++/** Slot id of a local time, comparable as a string with other slot ids. */
++export function localSlotId(t: LocalTime): string {
++  return `${t.date}T${formatMinutes(t.minutes)}`;
++}
++
++/** Opening hours on a local date, or null when the shop is closed that day. */
++export function hoursOn(date: string): { open: string; close: string } | null {
++  if (CLOSED_DATES.includes(date)) return null;
++  return OPENING_HOURS[utcDate(date).getUTCDay()] ?? null;
++}
++
++function isBefore(a: LocalTime, b: LocalTime): boolean {
++  return a.date < b.date || (a.date === b.date && a.minutes < b.minutes);
++}
++
++/**
++ * Orders for pickup on `date` close at min(CUTOFF_TIME, closing time) on the last open day before `date`.
++ * Returns null when no open day exists within the lookback (the date is then not orderable).
++ */
++export function cutoffFor(date: string): LocalTime | null {
++  for (let i = 1; i <= CUTOFF_LOOKBACK_DAYS; i++) {
++    const day = addDays(date, -i);
++    const hours = hoursOn(day);
++    if (hours) return { date: day, minutes: Math.min(toMinutes(CUTOFF_TIME), toMinutes(hours.close)) };
++  }
++  return null;
++}
++
++/** All slots that can be ordered at `now`: tomorrow through today + HORIZON_DAYS, before each day's cut-off. */
++export function generateSlots(now: Date): Slot[] {
++  const local = localNow(now);
++  const slots: Slot[] = [];
++  for (let i = 1; i <= HORIZON_DAYS; i++) {
++    const date = addDays(local.date, i);
++    const hours = hoursOn(date);
++    if (!hours) continue;
++    const cutoff = cutoffFor(date);
++    if (!cutoff || !isBefore(local, cutoff)) continue;
++    const close = toMinutes(hours.close);
++    for (let m = toMinutes(hours.open); m + SLOT_MINUTES <= close; m += SLOT_MINUTES) {
++      const time = formatMinutes(m);
++      slots.push({ id: `${date}T${time}`, date, time });
++    }
++  }
++  return slots;
++}
++
++const dateFormats: Record<Lang, Intl.DateTimeFormat> = {
++  sk: new Intl.DateTimeFormat("sk-SK", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }),
++  en: new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }),
++};
++
++/** "Saturday 7 November" / "sobota 7. novembra" for a local date. */
++export function formatDate(date: string, lang: Lang): string {
++  return dateFormats[lang].format(utcDate(date));
++}
++
++/** "Saturday 7 November, 09:00" for a slot id. */
++export function formatSlot(slotId: string, lang: Lang): string {
++  const match = SLOT_ID_RE.exec(slotId);
++  if (!match) return slotId;
++  return `${formatDate(match[1]!, lang)}, ${match[2]}`;
++}
+diff --git a/test/app.test.ts b/test/app.test.ts
+index 32b2599..ba31ba5 100644
+--- a/test/app.test.ts
++++ b/test/app.test.ts
+@@ -1,19 +1,12 @@
+ import request from "supertest";
+-import { describe, expect, it } from "vitest";
+-import { createApp } from "../src/app.js";
+-import type { Mail, Mailer } from "../src/mailer.js";
+-
+-class FakeMailer implements Mailer {
+-  sent: Mail[] = [];
+-  async send(mail: Mail) {
+-    this.sent.push(mail);
+-  }
+-}
+-
+-function setup() {
+-  const mailer = new FakeMailer();
+-  return { mailer, app: createApp({ mailer }) };
+-}
++import { describe, expect, it, vi } from "vitest";
++import en from "../src/locales/en.json" with { type: "json" };
++import sk from "../src/locales/sk.json" with { type: "json" };
++import { fill } from "../src/i18n.js";
++import { SHOP_EMAIL } from "../src/mailer.js";
++import { InMemoryOrderStore } from "../src/orders.js";
++import { generateSlots } from "../src/slots.js";
++import { orderForm, orderId, postOrder, setup, SLOT, storedOrder, T0 } from "./helpers.js";
+ 
+ describe("home page", () => {
+   it("renders Slovak by default with the menu and prices", async () => {
+@@ -60,3 +53,401 @@ describe("contact form", () => {
+     expect(mailer.sent).toHaveLength(0);
+   });
+ });
++
++const ORDER_URL = /^\/\?lang=en&order=([0-9A-F]{8})#order$/;
++
++describe("order form", () => {
++  it("renders the order section with slots grouped by date", async () => {
++    const res = await request(setup().app).get("/?lang=en");
++    expect(res.text).toContain('<section id="order">');
++    expect(res.text).toContain('action="/order?lang=en#order"');
++    expect(res.text).toContain('<optgroup label="Saturday 7 November">');
++    expect(res.text).toContain(`<option value="${SLOT}">09:00</option>`);
++    expect(res.text).not.toContain('value="2026-11-06T');
++    expect(res.text).toContain('name="qty_medovnik"');
++    expect(res.text.indexOf('id="order"')).toBeLessThan(res.text.indexOf('id="contact"'));
++  });
++
++  it("shows a call-us message when no slot can be booked", async () => {
++    const orders = new InMemoryOrderStore(
++      generateSlots(T0).flatMap((s) => Array.from({ length: 8 }, () => storedOrder({ slot: s.id }))),
++    );
++    const res = await request(setup({ orders }).app).get("/?lang=en");
++    expect(res.text).toContain("Please call us on");
++    expect(res.text).not.toContain('action="/order');
++  });
++
++  it("takes a valid order, emails shop and customer, and confirms it", async () => {
++    const { app, mailer, orders } = setup();
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(303);
++    expect(res.headers.location).toMatch(ORDER_URL);
++    const id = orderId(res);
++
++    expect(mailer.sent).toHaveLength(2);
++    const [shop, customer] = mailer.sent;
++    expect(shop).toMatchObject({ to: SHOP_EMAIL, replyTo: "eva@example.com" });
++    expect(shop!.text).toMatch(/15,80\s€/);
++    expect(shop!.subject).toContain(id);
++    expect(shop!.subject).not.toContain("Eva");
++    expect(customer!.to).toBe("eva@example.com");
++    expect(customer!.text).not.toContain("Sliced");
++    expect(orders.get(id)).toMatchObject({ slot: SLOT, totalCents: 1580, email: "eva@example.com", status: "open" });
++    expect(orders.get(id)!.phone).toBeUndefined();
++
++    const page = await request(app).get(`/?lang=en&order=${id}`);
++    expect(page.status).toBe(200);
++    expect(page.text).toContain(`Your order number is ${id}.`);
++    expect(page.text).toContain("Pickup: Saturday 7 November, 09:00");
++    expect(page.text).toMatch(/Total<\/span> <strong>€15\.80/);
++    expect(page.text).not.toContain("eva@example.com");
++  });
++
++  it("ignores client-supplied prices", async () => {
++    const { app, orders } = setup();
++    const res = await postOrder(app, orderForm({ "price_kvaskovy-chlieb": "1", unitPriceCents: "1", totalCents: "1" }));
++    expect(orders.get(orderId(res))!.totalCents).toBe(1580);
++  });
++
++  it("renders the normal page for an unknown, malformed or cancelled order id", async () => {
++    const orders = new InMemoryOrderStore([storedOrder({ id: "CA11CE1D", status: "cancelled" })]);
++    const { app } = setup({ orders });
++    for (const q of ["ABCDEF12", "abcdef12", "CA11CE1D", "<script>"]) {
++      const res = await request(app).get(`/?lang=en&order=${encodeURIComponent(q)}`);
++      expect(res.status).toBe(200);
++      expect(res.text).not.toContain("Your order number");
++      expect(res.text).not.toContain("<script>");
++    }
++  });
++
++  it("rejects the 9th order in a slot, sends no mail, and shows the slot as fully booked", async () => {
++    const orders = new InMemoryOrderStore(Array.from({ length: 8 }, () => storedOrder({})));
++    const { app, mailer } = setup({ orders });
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(400);
++    expect(res.text).toContain("This pickup time has just filled up");
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()[SLOT]).toBe(8);
++
++    const page = await request(app).get("/?lang=en");
++    expect(page.text).toContain(`<option value="${SLOT}" disabled>09:00 — fully booked</option>`);
++  });
++
++  it("limits open orders per email, ignoring case and spaces, but not cancelled or past ones", async () => {
++    const orders = new InMemoryOrderStore([
++      storedOrder({ email: "eva@example.com", status: "cancelled" }),
++      storedOrder({ email: "eva@example.com", slot: "2026-11-05T10:00" }),
++    ]);
++    const { app, mailer } = setup({ orders });
++    for (const slot of ["2026-11-07T09:00", "2026-11-07T10:00", "2026-11-08T09:00"]) {
++      expect((await postOrder(app, orderForm({ slot }))).status).toBe(303);
++    }
++    mailer.sent = [];
++    const res = await postOrder(app, orderForm({ email: "  EVA@Example.com ", slot: "2026-11-10T09:00" }));
++    expect(res.status).toBe(400);
++    expect(res.text).toContain("You already have 3 open orders");
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  describe("cakes", () => {
++    const cakeOnly = (qty: string, slot: string) =>
++      orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0", qty_medovnik: qty, slot });
++
++    it("need two days' notice", async () => {
++      const { app, mailer } = setup();
++      const res = await postOrder(app, cakeOnly("1", "2026-11-07T09:00"));
++      expect(res.status).toBe(400);
++      expect(res.text).toContain("Cakes need 2 days&#39; notice. Please choose a later pickup day.");
++      expect(mailer.sent).toHaveLength(0);
++      expect((await postOrder(app, cakeOnly("1", "2026-11-08T09:00"))).status).toBe(303);
++    });
++
++    it("are limited to 3 per order", async () => {
++      const res = await postOrder(setup().app, cakeOnly("4", "2026-11-08T09:00"));
++      expect(res.status).toBe(400);
++      expect(res.text).toContain("At most 3 cakes per order");
++    });
++  });
++
++  it("requires at least one item", async () => {
++    const res = await postOrder(setup().app, orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "" }));
++    expect(res.status).toBe(400);
++    expect(res.text).toContain("Please choose at least one item.");
++  });
++
++  it.each([
++    ["negative quantity", { qty_croissant: "-1" }],
++    ["fractional quantity", { qty_croissant: "1.5" }],
++    ["quantity over 20", { qty_croissant: "21" }],
++    ["non-numeric quantity", { qty_croissant: "abc" }],
++    ["bad email", { email: "nope" }],
++    ["blank name", { name: "  " }],
++    ["name with CR/LF", { name: "Eva\r\nBcc: x@example.com" }],
++    ["phone with LF", { phone: "0900\n123" }],
++    ["note over 500 characters", { note: "x".repeat(501) }],
++  ])("rejects a %s", async (_, overrides) => {
++    const { app, mailer, orders } = setup();
++    const res = await postOrder(app, orderForm(overrides));
++    expect(res.status).toBe(400);
++    expect(res.text).toContain("Please check the quantities");
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("re-renders escaped values with quantities and slot kept", async () => {
++    const res = await postOrder(setup().app, orderForm({ name: "<b>Eva</b>", email: "nope" }));
++    expect(res.status).toBe(400);
++    expect(res.text).toContain('value="&lt;b&gt;Eva&lt;/b&gt;"');
++    expect(res.text).not.toContain("<b>Eva</b>");
++    expect(res.text).toMatch(/name="qty_croissant"[^>]*value="3"/);
++    expect(res.text).toMatch(/name="qty_kvaskovy-chlieb"[^>]*value="2"/);
++    expect(res.text).toContain(`<option value="${SLOT}" selected>`);
++    expect(res.text).toContain("Sliced, please</textarea>");
++  });
++
++  it.each([
++    ["past its cut-off", new Date("2026-11-06T13:30:00Z"), SLOT, "no longer available"],
++    ["on a Monday", T0, "2026-11-09T09:00", "no longer available"],
++    ["after closing time", T0, "2026-11-07T18:00", "no longer available"],
++    ["that is garbage", T0, "tomorrow<script>", "Please check the quantities"],
++  ])("rejects a slot %s", async (_, now, slot, message) => {
++    const { app, mailer, orders } = setup({ now });
++    const res = await postOrder(app, orderForm({ slot }));
++    expect(res.status).toBe(400);
++    expect(res.text).toContain(message);
++    expect(res.text).not.toContain("<script>");
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("cancels the order and fails when the shop mail cannot be sent", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const { app, mailer, orders } = setup();
++    mailer.failOn.add(0);
++    const form = orderForm({ name: "<b>Eva</b>" });
++    const res = await postOrder(app, form);
++    expect(res.status).toBe(500);
++    expect(orders.countBySlot()).toEqual({});
++    expect(res.text).toContain("your order has NOT been placed");
++    expect(res.text).not.toContain("SMTP down");
++    expect(res.text).not.toMatch(/Error:|\bat .*\.ts:\d+/);
++    expect(res.text).toContain('value="&lt;b&gt;Eva&lt;/b&gt;"');
++    expect(res.text).toMatch(/name="qty_croissant"[^>]*value="3"/);
++    expect(res.text).toContain(`<input type="hidden" name="token" value="${form.token}">`);
++    expect(error).toHaveBeenCalled();
++    error.mockRestore();
++  });
++
++  it("still confirms when only the customer mail fails", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const { app, mailer, orders } = setup();
++    mailer.failOn.add(1);
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(303);
++    expect(mailer.sent).toHaveLength(1);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    expect(error).toHaveBeenCalled();
++    error.mockRestore();
++  });
++});
++
++describe("spam trap (honeypot)", () => {
++  it("renders a hidden, unfocusable website field in both forms", async () => {
++    const res = await request(setup().app).get("/?lang=en");
++    const traps = res.text.match(/<label class="hp" aria-hidden="true">[^<]*<input name="website" tabindex="-1" autocomplete="off" value=""><\/label>/g);
++    expect(traps).toHaveLength(2);
++    expect(res.text).not.toContain('type="hidden" name="website"');
++  });
++
++  it("a filled trap on the order form looks like success but reserves and sends nothing", async () => {
++    const { app, mailer, orders } = setup();
++    const res = await postOrder(app, orderForm({ website: "http://spam.example" }));
++    expect(res.status).toBe(303);
++    expect(res.headers.location).toBe("/?lang=en#order");
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("a filled trap on the contact form looks like success but sends nothing", async () => {
++    const { app, mailer } = setup();
++    const res = await request(app)
++      .post("/contact?lang=en")
++      .type("form")
++      .send({ name: "Eva", email: "eva@example.com", message: "Hi", website: "x" });
++    expect(res.status).toBe(303);
++    expect(res.headers.location).toBe("/?lang=en&sent=1#contact");
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("an empty trap does not get in the way of real submissions", async () => {
++    const { app, mailer, orders } = setup();
++    expect((await postOrder(app, orderForm({ website: "" }))).status).toBe(303);
++    const contact = await request(app)
++      .post("/contact?lang=en")
++      .type("form")
++      .send({ name: "Eva", email: "eva@example.com", message: "Hi", website: "" });
++    expect(contact.status).toBe(303);
++    expect(mailer.sent).toHaveLength(3);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++});
++
++describe("contact form name", () => {
++  it.each(["Eva\r\nBcc: x@example.com", "Eva\nBcc: x@example.com", "Eva\rBcc: x@example.com"])(
++    "rejects a name with a line break (%j)",
++    async (name) => {
++      const { app, mailer } = setup();
++      const res = await request(app).post("/contact").type("form").send({ name, email: "eva@example.com", message: "Hi" });
++      expect(res.status).toBe(400);
++      expect(mailer.sent).toHaveLength(0);
++    },
++  );
++});
++
++describe("server failures", () => {
++  it("a store that cannot save gives the friendly 500 page with the form kept, and no error details", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    class BrokenStore extends InMemoryOrderStore {
++      override reserve(): never {
++        throw new Error("EACCES: disk is read-only");
++      }
++    }
++    const { app, mailer } = setup({ orders: new BrokenStore() });
++    const res = await postOrder(app, orderForm({ email: "eva@example.com" }), "sk");
++    expect(res.status).toBe(500);
++    expect(res.text).toContain("vaša objednávka NEBOLA prijatá");
++    expect(res.text).toContain('value="eva@example.com"');
++    expect(res.text).not.toContain("EACCES");
++    expect(mailer.sent).toHaveLength(0);
++    error.mockRestore();
++  });
++
++  it("any other error gets a minimal generic 500 page without a stack trace", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    class BrokenStore extends InMemoryOrderStore {
++      override countBySlot(): never {
++        throw new Error("secret internals");
++      }
++    }
++    const res = await request(setup({ orders: new BrokenStore() }).app).get("/?lang=en");
++    expect(res.status).toBe(500);
++    expect(res.text).toContain("Something went wrong");
++    expect(res.text).not.toContain("secret internals");
++    expect(res.text).not.toMatch(/Error:|\bat .*\.ts:\d+/);
++    expect(error).toHaveBeenCalled();
++    error.mockRestore();
++  });
++});
++
++describe("double submit (form token)", () => {
++  class SpyStore extends InMemoryOrderStore {
++    reservedIds: string[] = [];
++    override reserve(...args: Parameters<InMemoryOrderStore["reserve"]>) {
++      this.reservedIds.push(args[0].id);
++      return super.reserve(...args);
++    }
++  }
++
++  it("renders a fresh 32-hex token per page", async () => {
++    const { app } = setup();
++    const token = async () =>
++      /<input type="hidden" name="token" value="([0-9a-f]{32})">/.exec((await request(app).get("/")).text)?.[1];
++    const [a, b] = [await token(), await token()];
++    expect(a).toBeDefined();
++    expect(a).not.toBe(b);
++  });
++
++  it.each([
++    ["missing", undefined],
++    ["empty", ""],
++    ["uppercase", "A".repeat(32)],
++    ["too short", "a".repeat(31)],
++    ["not hex", "g".repeat(32)],
++  ])("rejects a %s token as invalid", async (_, token) => {
++    const form = orderForm();
++    if (token === undefined) delete form.token;
++    else form.token = token;
++    const { app, mailer, orders } = setup();
++    const res = await postOrder(app, form);
++    expect(res.status).toBe(400);
++    expect(res.text).toContain("Please check the quantities");
++    expect(res.text).toMatch(/<input type="hidden" name="token" value="[0-9a-f]{32}">/);
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("keeps a valid token on a 400 re-render", async () => {
++    const form = orderForm({ email: "nope" });
++    const res = await postOrder(setup().app, form);
++    expect(res.status).toBe(400);
++    expect(res.text).toContain(`<input type="hidden" name="token" value="${form.token}">`);
++  });
++
++  it("two concurrent posts of the same form make one order and one pair of mails", async () => {
++    const { app, mailer, orders } = setup();
++    const form = orderForm();
++    const [a, b] = await Promise.all([postOrder(app, form), postOrder(app, form)]);
++    expect(a.status).toBe(303);
++    expect(b.status).toBe(303);
++    expect(orderId(a)).toBe(orderId(b));
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    expect(mailer.sent.map((m) => m.to)).toEqual([SHOP_EMAIL, "eva@example.com"]);
++  });
++
++  it("a later resubmission redirects to the order already placed, even when its slot is now full", async () => {
++    const orders = new InMemoryOrderStore(Array.from({ length: 7 }, () => storedOrder({})));
++    const { app, mailer } = setup({ orders });
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form));
++    mailer.sent = [];
++    const again = await postOrder(app, form);
++    expect(orderId(again)).toBe(id);
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()[SLOT]).toBe(8);
++  });
++
++  it("retrying with the same token after a shop-mail failure creates a new order", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const orders = new SpyStore();
++    const { app, mailer } = setup({ orders });
++    mailer.failOn.add(0);
++    const form = orderForm();
++    expect((await postOrder(app, form)).status).toBe(500);
++    const retry = await postOrder(app, form);
++    expect(retry.status).toBe(303);
++    const [failedId] = orders.reservedIds;
++    expect(orderId(retry)).not.toBe(failedId);
++    expect(orders.get(failedId!)?.status).toBe("cancelled");
++    expect(orders.get(orderId(retry))?.status).toBe("open");
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    expect(mailer.sent).toHaveLength(2);
++    error.mockRestore();
++  });
++
++  it("different tokens make different orders", async () => {
++    const { app, mailer, orders } = setup();
++    const a = orderId(await postOrder(app, orderForm()));
++    const b = orderId(await postOrder(app, orderForm()));
++    expect(a).not.toBe(b);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++    expect(mailer.sent).toHaveLength(4);
++  });
++});
++
++describe("locales", () => {
++  function keys(obj: object, prefix = ""): string[] {
++    return Object.entries(obj)
++      .flatMap(([k, v]) =>
++        v && typeof v === "object" && !Array.isArray(v) ? keys(v as object, `${prefix}${k}.`) : [`${prefix}${k}`],
++      )
++      .sort();
++  }
++
++  it("sk and en have the same keys", () => {
++    expect(keys(en)).toEqual(keys(sk));
++  });
++
++  it("fill replaces placeholders and leaves unknown ones", () => {
++    expect(fill("{a} and {b}, not {c}", { a: 1, b: "two" })).toBe("1 and two, not {c}");
++  });
++});
+diff --git a/test/file-store.test.ts b/test/file-store.test.ts
+new file mode 100644
+index 0000000..a22312d
+--- /dev/null
++++ b/test/file-store.test.ts
+@@ -0,0 +1,209 @@
++import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { createApp } from "../src/app.js";
++import { FileOrderStore, type ReserveLimits } from "../src/orders.js";
++import en from "../src/locales/en.json" with { type: "json" };
++import sk from "../src/locales/sk.json" with { type: "json" };
++import { FakeMailer, orderForm, orderId, postOrder, SLOT, storedOrder, T0 } from "./helpers.js";
++
++const limits: ReserveLimits = { capacity: 8, maxOpenPerEmail: 3, nowSlot: "2026-11-06T09:00" };
++
++let dir: string;
++let path: string;
++beforeEach(() => {
++  dir = mkdtempSync(join(tmpdir(), "kvasok-qa-"));
++  path = join(dir, "orders.json");
++});
++afterEach(() => {
++  rmSync(dir, { recursive: true, force: true });
++});
++
++describe("FileOrderStore with a damaged file", () => {
++  it.each([
++    ["an empty file", ""],
++    ["a truncated file", '[{"id": "AB12CD34", "slot": '],
++    ["plain garbage", "not json at all"],
++    ["a UTF-8 byte order mark before the JSON", "﻿[]"],
++  ])("refuses %s with a clear message and leaves it untouched", (_, content) => {
++    writeFileSync(path, content);
++    expect(() => new FileOrderStore(path)).toThrow(/orders\.json is not valid JSON/);
++    expect(readFileSync(path, "utf8")).toBe(content);
++  });
++
++  it.each([
++    ["an object instead of a list", "{}"],
++    ["null", "null"],
++    ["a string", '"x"'],
++    ["a list of numbers", "[1, 2]"],
++    ["a lowercase order id", JSON.stringify([{ ...storedOrder(), id: "abcdef12" }])],
++    ["a malformed slot", JSON.stringify([{ ...storedOrder(), slot: "tomorrow" }])],
++    ["a zero quantity", JSON.stringify([{ ...storedOrder(), lines: [{ productId: "bageta", qty: 0, unitPriceCents: 190 }] }])],
++    ["a fractional price", JSON.stringify([{ ...storedOrder(), totalCents: 1.5 }])],
++    ["an unknown language", JSON.stringify([{ ...storedOrder(), lang: "de" }])],
++    ["a missing email", JSON.stringify([{ ...storedOrder(), email: undefined }])],
++  ])("refuses %s as not a valid list of orders and leaves the file untouched", (_, content) => {
++    writeFileSync(path, content);
++    expect(() => new FileOrderStore(path)).toThrow(/not a valid list of orders/);
++    expect(readFileSync(path, "utf8")).toBe(content);
++  });
++
++  it("does not treat a directory in place of the file as an empty store", () => {
++    mkdirSync(path);
++    expect(() => new FileOrderStore(path)).toThrow();
++  });
++
++  it("accepts an empty list and a hand-edited file with extra whitespace", () => {
++    writeFileSync(path, "  [ ]  \n");
++    expect(new FileOrderStore(path).countBySlot()).toEqual({});
++  });
++});
++
++describe("FileOrderStore writes", () => {
++  it("leaves no temp file behind after reserve and cancel", () => {
++    const store = new FileOrderStore(path);
++    const o = storedOrder();
++    store.reserve(o, limits);
++    store.reserve(storedOrder(), limits);
++    store.cancel(o.id);
++    expect(readdirSync(dir)).toEqual(["orders.json"]);
++  });
++
++  it("cancelling twice or cancelling an unknown id is harmless and does not rewrite the file", () => {
++    const store = new FileOrderStore(path);
++    const o = storedOrder();
++    store.reserve(o, limits);
++    store.cancel(o.id);
++    const written = readFileSync(path, "utf8");
++    writeFileSync(path, "[]"); // a marker: a rewrite would replace this
++    store.cancel(o.id);
++    store.cancel("00000000");
++    expect(readFileSync(path, "utf8")).toBe("[]");
++    expect(written).toContain('"status": "cancelled"');
++  });
++
++  it("rolls the reservation back when the file cannot be written", () => {
++    const store = new FileOrderStore(path);
++    mkdirSync(path); // rename onto a directory fails
++    expect(() => store.reserve(storedOrder(), limits)).toThrow();
++    expect(store.countBySlot()).toEqual({});
++  });
++
++  it("keeps an order open in memory when cancelling it cannot be saved", () => {
++    const store = new FileOrderStore(path);
++    const o = storedOrder();
++    store.reserve(o, limits);
++    rmSync(path);
++    mkdirSync(path);
++    expect(() => store.cancel(o.id)).toThrow();
++    expect(store.get(o.id)?.status).toBe("open");
++  });
++
++  it("keeps the email allowance and capacity across a restart, counting open orders only", () => {
++    const first = new FileOrderStore(path);
++    const cancelled = storedOrder({ email: "jan@example.com" });
++    first.reserve(cancelled, limits);
++    first.cancel(cancelled.id);
++    for (const t of ["10:00", "10:30", "11:00"]) {
++      first.reserve(storedOrder({ email: "Jan@Example.com", slot: `2026-11-07T${t}` }), limits);
++    }
++    const second = new FileOrderStore(path);
++    expect(second.reserve(storedOrder({ email: "jan@example.com", slot: "2026-11-07T12:00" }), limits)).toBe("emailLimit");
++    expect(second.countBySlot()).toEqual({ "2026-11-07T10:00": 1, "2026-11-07T10:30": 1, "2026-11-07T11:00": 1 });
++  });
++});
++
++describe("the app on a FileOrderStore", () => {
++  function appOn(store: FileOrderStore, mailer = new FakeMailer()) {
++    return { mailer, app: createApp({ mailer, orders: store, now: () => T0 }) };
++  }
++
++  it("persists an order and shows its confirmation after a restart", async () => {
++    const { app } = appOn(new FileOrderStore(path));
++    const id = orderId(await postOrder(app, orderForm()));
++
++    const { app: restarted } = appOn(new FileOrderStore(path));
++    const page = await request(restarted).get(`/?lang=en&order=${id}`);
++    expect(page.text).toContain(`Your order number is ${id}.`);
++    expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject([{ id, slot: SLOT, totalCents: 1580, status: "open", lang: "en" }]);
++  });
++
++  it("stores a cancelled order on disk when the shop mail fails, and the restarted shop shows the slot free", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const { app, mailer } = appOn(new FileOrderStore(path));
++    mailer.failOn.add(0);
++    expect((await postOrder(app, orderForm())).status).toBe(500);
++    expect(error).toHaveBeenCalled();
++    error.mockRestore();
++
++    const onDisk = JSON.parse(readFileSync(path, "utf8")) as { status: string }[];
++    expect(onDisk.map((o) => o.status)).toEqual(["cancelled"]);
++
++    const restarted = new FileOrderStore(path);
++    expect(restarted.countBySlot()).toEqual({});
++    const { app: app2 } = appOn(restarted);
++    expect((await postOrder(app2, orderForm())).status).toBe(303);
++  });
++
++  it("answers 500 and sends no mail when the order cannot be saved, and does not hold the slot", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const store = new FileOrderStore(path);
++    const { app, mailer } = appOn(store);
++    mkdirSync(path);
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(500);
++    expect(mailer.sent).toHaveLength(0);
++    expect(store.countBySlot()).toEqual({});
++    error.mockRestore();
++  });
++
++  it("still answers 500 (not a crash) when the shop mail fails and the cancellation cannot be saved either", async () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const store = new FileOrderStore(path);
++    const { app, mailer } = appOn(store);
++    mailer.failOn.add(0);
++    // Block the file only after the reservation was saved: replace it with a directory during the mail call.
++    const original = mailer.send.bind(mailer);
++    mailer.send = async (mail) => {
++      rmSync(path);
++      mkdirSync(path);
++      return original(mail);
++    };
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(500);
++    expect(error).toHaveBeenCalled();
++    error.mockRestore();
++  });
++});
++
++describe("locale files", () => {
++  /** All string leaves with their dotted keys (array items keyed by index). */
++  function leaves(obj: unknown, prefix = ""): [string, string][] {
++    if (typeof obj === "string") return [[prefix, obj]];
++    if (obj && typeof obj === "object") {
++      return Object.entries(obj).flatMap(([k, v]) => leaves(v, prefix ? `${prefix}.${k}` : k));
++    }
++    return [];
++  }
++  const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!).sort();
++
++  it("uses the same placeholders in both languages for every message", () => {
++    const enLeaves = new Map(leaves(en));
++    for (const [key, text] of leaves(sk)) {
++      expect(placeholders(enLeaves.get(key) ?? ""), key).toEqual(placeholders(text));
++    }
++  });
++
++  it("has no empty strings and the same seven weekday names in both", () => {
++    for (const [key, text] of [...leaves(en), ...leaves(sk)]) expect(text.trim(), key).not.toBe("");
++    expect(en.days).toHaveLength(7);
++    expect(sk.days).toHaveLength(7);
++  });
++
++  it("has a message for each placeholder the app fills: {days} {max} {id} {slot}", () => {
++    const all = [...leaves(en), ...leaves(sk)].flatMap(([, text]) => placeholders(text));
++    expect(new Set(all)).toEqual(new Set(["days", "max", "id", "slot"]));
++  });
++});
+diff --git a/test/hardening.test.ts b/test/hardening.test.ts
+new file mode 100644
+index 0000000..2c79d74
+--- /dev/null
++++ b/test/hardening.test.ts
+@@ -0,0 +1,691 @@
++import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
++import { createApp } from "../src/app.js";
++import { SHOP_EMAIL, type Mail, type Mailer } from "../src/mailer.js";
++import { FileOrderStore, InMemoryOrderStore, newFormToken, type ReserveLimits } from "../src/orders.js";
++import { alertText, FakeMailer, orderForm, orderId, postOrder, setup, SLOT, storedOrder, T0 } from "./helpers.js";
++
++const TOKEN_FIELD = /<input type="hidden" name="token" value="([^"]*)">/;
++const limits: ReserveLimits = { capacity: 8, maxOpenPerEmail: 3, nowSlot: "2026-11-06T09:00" };
++
++let errorLog: MockInstance;
++beforeEach(() => {
++  errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
++});
++afterEach(() => {
++  errorLog.mockRestore();
++});
++
++function postContact(app: ReturnType<typeof setup>["app"], body: Record<string, string> | string, lang = "en") {
++  return request(app).post(`/contact?lang=${lang}`).type("form").send(body);
++}
++const contactForm = (overrides: Record<string, string> = {}) => ({
++  name: "Eva",
++  email: "eva@example.com",
++  message: "Hello",
++  website: "",
++  ...overrides,
++});
++
++class BrokenReserveStore extends InMemoryOrderStore {
++  override reserve(): never {
++    throw new Error("EACCES: /srv/secret/data/orders.json");
++  }
++}
++
++describe("honeypot", () => {
++  it("treats a whitespace-only trap as empty: the order is real", async () => {
++    const { app, mailer, orders } = setup();
++    for (const [i, website] of [" ", "   ", "\t", " "].entries()) {
++      const res = await postOrder(app, orderForm({ website, email: `ws${i}@example.com` }));
++      expect(res.status, JSON.stringify(website)).toBe(303);
++      expect(res.headers.location).toMatch(/order=[0-9A-F]{8}#order$/);
++    }
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 4 });
++    expect(mailer.sent).toHaveLength(8);
++  });
++
++  it("treats a whitespace-only trap on the contact form as empty: the mail is sent", async () => {
++    const { app, mailer } = setup();
++    expect((await postContact(app, contactForm({ website: "   " }))).status).toBe(303);
++    expect(mailer.sent).toHaveLength(1);
++  });
++
++  it("any visible character in the trap is a hit, including one surrounded by spaces", async () => {
++    const { app, mailer, orders } = setup();
++    for (const website of ["x", " x ", "0", "http://spam.example"]) {
++      const res = await postOrder(app, orderForm({ website }));
++      expect(res.status, website).toBe(303);
++      expect(res.headers.location).toBe("/?lang=en#order");
++    }
++    expect(orders.countBySlot()).toEqual({});
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("a repeated trap field is a hit even when every copy is empty", async () => {
++    const { app, mailer, orders } = setup();
++    const base = new URLSearchParams(orderForm()).toString();
++    const res = await postOrder(app, `${base}&website=&website=`);
++    expect(res.status).toBe(303);
++    expect(res.headers.location).toBe("/?lang=en#order");
++    const contact = await postContact(app, `name=Eva&email=eva%40example.com&message=Hi&website=&website=`);
++    expect(contact.status).toBe(303);
++    expect(contact.headers.location).toBe("/?lang=en&sent=1#contact");
++    expect(orders.countBySlot()).toEqual({});
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("is checked before validation: a hit on an otherwise invalid form is still a silent 303", async () => {
++    const { app } = setup();
++    const order = await postOrder(app, { website: "x", email: "nope" });
++    expect(order.status).toBe(303);
++    const contact = await postContact(app, { website: "x" });
++    expect(contact.status).toBe(303);
++    expect(contact.headers.location).toBe("/?lang=en&sent=1#contact");
++  });
++
++  it("keeps the language in the redirect and falls back to Slovak", async () => {
++    const { app } = setup();
++    expect((await postOrder(app, orderForm({ website: "x" }), "sk")).headers.location).toBe("/?lang=sk#order");
++    expect((await postOrder(app, orderForm({ website: "x" }), null)).headers.location).toBe("/?lang=sk#order");
++    expect((await postOrder(app, orderForm({ website: "x" }), "fr")).headers.location).toBe("/?lang=sk#order");
++    expect((await postContact(app, contactForm({ website: "x" }), "sk")).headers.location).toBe("/?lang=sk&sent=1#contact");
++  });
++
++  it("never touches the store or the mailer, even when both are broken", async () => {
++    const mailer = new FakeMailer();
++    mailer.failOn.add(0).add(1);
++    const app = createApp({ mailer, orders: new BrokenReserveStore(), now: () => T0 });
++    expect((await postOrder(app, orderForm({ website: "x" }))).status).toBe(303);
++    expect((await postContact(app, contactForm({ website: "x" }))).status).toBe(303);
++    expect(errorLog).not.toHaveBeenCalled();
++  });
++
++  it("a trap hit does not use up the form token", async () => {
++    const { app, orders } = setup();
++    const form = orderForm();
++    await postOrder(app, { ...form, website: "x" });
++    const res = await postOrder(app, form);
++    expect(res.status).toBe(303);
++    expect(orders.get(orderId(res))).toMatchObject({ token: form.token, status: "open" });
++  });
++
++  it("is not echoed on a 400 re-render: the trap input stays empty in both forms", async () => {
++    const { app } = setup();
++    const order = await postOrder(app, orderForm({ email: "nope", website: "   " }));
++    expect(order.status).toBe(400);
++    const contact = await postContact(app, contactForm({ email: "nope", website: "   " }));
++    expect(contact.status).toBe(400);
++    for (const res of [order, contact]) {
++      expect(res.text.match(/<input name="website" tabindex="-1" autocomplete="off" value="">/g)).toHaveLength(2);
++      expect(res.text).not.toMatch(/name="website"[^>]*value="\s+"/);
++    }
++  });
++
++  it("a trap hit on a 400 re-render is impossible: filled means redirect, never an echoed page", async () => {
++    const { app } = setup();
++    const res = await postOrder(app, orderForm({ email: "nope", website: "<script>x</script>" }));
++    expect(res.status).toBe(303);
++    expect(res.text).not.toContain("<script>");
++  });
++});
++
++describe("form token on re-render", () => {
++  it.each([
++    ["an injection attempt", `"><script>alert(1)</script>`],
++    ["uppercase hex", "A".repeat(32)],
++    ["31 characters", "a".repeat(31)],
++    ["33 characters", "a".repeat(33)],
++    ["with a trailing space", `${"a".repeat(32)} `],
++    ["with a newline", `${"a".repeat(32)}\n`],
++    ["empty", ""],
++  ])("replaces a malformed token (%s) with a fresh valid one", async (_, bad) => {
++    const { app } = setup();
++    const res = await postOrder(app, orderForm({ token: bad, email: "nope" }));
++    expect(res.status).toBe(400);
++    const shown = TOKEN_FIELD.exec(res.text)?.[1];
++    expect(shown).toMatch(/^[0-9a-f]{32}$/);
++    expect(shown).not.toBe(bad);
++    expect(res.text).not.toMatch(/<script/i);
++    expect(res.text.match(/name="token"/g)).toHaveLength(1);
++  });
++
++  it("replaces a repeated token with a fresh valid one", async () => {
++    const { app } = setup();
++    const base = new URLSearchParams(orderForm({ token: "a".repeat(32) })).toString();
++    const res = await postOrder(app, `${base}&token=${"b".repeat(32)}`);
++    expect(res.status).toBe(400);
++    const shown = TOKEN_FIELD.exec(res.text)?.[1];
++    expect(shown).toMatch(/^[0-9a-f]{32}$/);
++    expect(shown).not.toBe("a".repeat(32));
++    expect(shown).not.toBe("b".repeat(32));
++  });
++
++  it("keeps a valid token on every rejection kind and on the friendly 500", async () => {
++    const token = newFormToken();
++    const full = new InMemoryOrderStore(Array.from({ length: 8 }, () => storedOrder({})));
++    const broken = createApp({ mailer: new FakeMailer(), orders: new BrokenReserveStore(), now: () => T0 });
++    const cases: [ReturnType<typeof setup>["app"], Record<string, string>, number][] = [
++      [setup().app, orderForm({ token, qty_croissant: "0", "qty_kvaskovy-chlieb": "0" }), 400],
++      [setup().app, orderForm({ token, slot: "2026-11-09T09:00" }), 400],
++      [setup({ orders: full }).app, orderForm({ token }), 400],
++      [broken, orderForm({ token }), 500],
++    ];
++    for (const [app, form, status] of cases) {
++      const res = await postOrder(app, form);
++      expect(res.status).toBe(status);
++      expect(TOKEN_FIELD.exec(res.text)?.[1]).toBe(token);
++    }
++  });
++
++  it("a retry with the kept token after a failed save is a normal new order", async () => {
++    const orders = new InMemoryOrderStore();
++    let broken = true;
++    const reserve = orders.reserve.bind(orders);
++    orders.reserve = (...args) => {
++      if (broken) throw new Error("disk full");
++      return reserve(...args);
++    };
++    const { app, mailer } = setup({ orders });
++    const form = orderForm();
++    expect((await postOrder(app, form)).status).toBe(500);
++    broken = false;
++    const retry = await postOrder(app, form);
++    expect(retry.status).toBe(303);
++    expect(mailer.sent).toHaveLength(2);
++  });
++});
++
++describe("duplicate detection by token", () => {
++  it("takes priority over the email limit", async () => {
++    const { app, mailer, orders } = setup();
++    const forms = ["2026-11-07T09:00", "2026-11-07T10:00", "2026-11-07T11:00"].map((slot) => orderForm({ slot }));
++    const ids = [];
++    for (const f of forms) ids.push(orderId(await postOrder(app, f)));
++
++    const fourth = await postOrder(app, orderForm({ slot: "2026-11-07T12:00" }));
++    expect(fourth.status).toBe(400);
++    expect(alertText(fourth.text)).toContain("You already have 3 open orders");
++
++    mailer.sent = [];
++    for (const [i, f] of forms.entries()) {
++      const again = await postOrder(app, f);
++      expect(again.status).toBe(303);
++      expect(orderId(again)).toBe(ids[i]);
++    }
++    expect(mailer.sent).toHaveLength(0);
++    expect(Object.values(orders.countBySlot()).reduce((a, b) => a + b, 0)).toBe(3);
++  });
++
++  it("an identical resubmission takes priority over both limits; a changed one is a new order under the usual limits", async () => {
++    const orders = new InMemoryOrderStore(Array.from({ length: 7 }, () => storedOrder({})));
++    const { app, mailer } = setup({ orders });
++    const first = orderForm();
++    const id = orderId(await postOrder(app, first));
++    // Fill the other limit too: the same address now holds 3 open orders.
++    await postOrder(app, orderForm({ slot: "2026-11-07T10:00" }));
++    await postOrder(app, orderForm({ slot: "2026-11-07T10:30" }));
++    mailer.sent = [];
++
++    // Identical content (email differing only in case and spaces): the same order, no mail.
++    const identical = await postOrder(app, { ...first, email: " EVA@example.com " });
++    expect(identical.status).toBe(303);
++    expect(orderId(identical)).toBe(id);
++    expect(orders.countBySlot()[SLOT]).toBe(8);
++    expect(mailer.sent).toHaveLength(0);
++
++    // Back button, then a changed day, email and items with the same token: a new order with its own mails.
++    const altered = await postOrder(app, { ...first, slot: "2026-11-08T09:00", email: "other@example.com", qty_croissant: "9" });
++    expect(altered.status).toBe(303);
++    const alteredId = orderId(altered);
++    expect(alteredId).not.toBe(id);
++    expect(orders.get(alteredId)).toMatchObject({ slot: "2026-11-08T09:00", email: "other@example.com" });
++    expect(orders.get(alteredId)!.lines).toContainEqual({ productId: "croissant", qty: 9, unitPriceCents: 180 });
++    expect(orders.get(id)).toMatchObject({ slot: SLOT, email: "eva@example.com", status: "open" });
++    expect(mailer.sent.map((m) => m.to)).toEqual([SHOP_EMAIL, "other@example.com"]);
++
++    // A changed resubmission is checked against the limits as usual: same full slot, other items.
++    mailer.sent = [];
++    const changedItems = await postOrder(app, { ...first, qty_croissant: "4" });
++    expect(changedItems.status).toBe(400);
++    expect(alertText(changedItems.text)).toContain("has just filled up");
++    // Same email at its limit, another (free) slot.
++    const changedSlot = await postOrder(app, { ...first, slot: "2026-11-07T11:00" });
++    expect(changedSlot.status).toBe(400);
++    expect(alertText(changedSlot.text)).toContain("You already have 3 open orders");
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it.each([
++    ["slot", { slot: "2026-11-08T09:00" }],
++    ["email", { email: "other@example.com" }],
++    ["items", { qty_croissant: "4" }],
++  ])("the same token with a changed %s places a new order and sends its mails", async (_, change) => {
++    const { app, mailer, orders } = setup();
++    const first = orderForm();
++    const id = orderId(await postOrder(app, first));
++    mailer.sent = [];
++    const altered = await postOrder(app, { ...first, ...change });
++    expect(altered.status).toBe(303);
++    expect(orderId(altered)).not.toBe(id);
++    expect(mailer.sent).toHaveLength(2);
++    expect(orders.get(id)?.status).toBe("open");
++    expect(orders.get(orderId(altered))?.status).toBe("open");
++  });
++
++  describe("after the cut-off", () => {
++    // Placed on Friday at 13:59 local; the resubmission arrives at 14:01, after Saturday's cut-off.
++    const before = new Date("2026-11-06T12:59:00Z");
++    const after = new Date("2026-11-06T13:01:00Z");
++
++    it("an identical resubmission still lands on the order's confirmation, with no mail", async () => {
++      const orders = new InMemoryOrderStore();
++      const form = orderForm();
++      const id = orderId(await postOrder(setup({ now: before, orders }).app, form));
++      const late = setup({ now: after, orders });
++      const res = await postOrder(late.app, form);
++      expect(res.status).toBe(303);
++      expect(orderId(res)).toBe(id);
++      expect(late.mailer.sent).toHaveLength(0);
++      expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    });
++
++    it("an altered resubmission is refused as slotGone", async () => {
++      const orders = new InMemoryOrderStore();
++      const form = orderForm();
++      await postOrder(setup({ now: before, orders }).app, form);
++      const late = setup({ now: after, orders });
++      const res = await postOrder(late.app, { ...form, qty_croissant: "4" });
++      expect(res.status).toBe(400);
++      expect(alertText(res.text)).toContain("no longer available");
++      expect(late.mailer.sent).toHaveLength(0);
++      expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    });
++
++    it("an identical cake resubmission is not refused by the cake notice once the day has changed", async () => {
++      const orders = new InMemoryOrderStore();
++      const cake = orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0", qty_medovnik: "1", slot: "2026-11-08T09:00" });
++      // Friday 23:59 local, then Saturday 00:01 local: Sunday is now only one day away.
++      const id = orderId(await postOrder(setup({ now: new Date("2026-11-06T22:59:00Z"), orders }).app, cake));
++      const res = await postOrder(setup({ now: new Date("2026-11-06T23:01:00Z"), orders }).app, cake);
++      expect(orderId(res)).toBe(id);
++    });
++  });
++
++  it("hands out a fresh token when a failed order could not be cancelled, so a retry is a new order", async () => {
++    class StuckStore extends InMemoryOrderStore {
++      override cancel(): never {
++        throw new Error("EROFS");
++      }
++    }
++    const orders = new StuckStore();
++    const { app, mailer } = setup({ orders });
++    mailer.failOn.add(0);
++    const form = orderForm();
++    const failed = await postOrder(app, form);
++    expect(failed.status).toBe(500);
++    expect(alertText(failed.text)).toContain("NOT been placed");
++    const freshToken = TOKEN_FIELD.exec(failed.text)?.[1];
++    expect(freshToken).toMatch(/^[0-9a-f]{32}$/);
++    expect(freshToken).not.toBe(form.token);
++    // The order the shop never got is still open; the retry with the fresh token is a separate, new order.
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++    const retry = await postOrder(app, { ...form, token: freshToken! });
++    expect(retry.status).toBe(303);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++    expect(mailer.sent.map((m) => m.to)).toEqual([SHOP_EMAIL, "eva@example.com"]);
++  });
++
++  it("uses the language of the resubmission for the redirect and keeps the original order untouched", async () => {
++    const { app, orders } = setup();
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form, "en"));
++    const again = await postOrder(app, form, "sk");
++    expect(again.headers.location).toBe(`/?lang=sk&order=${id}#order`);
++    expect(orders.get(id)?.lang).toBe("en");
++    const page = await request(app).get(again.headers.location!.replace("#order", ""));
++    expect(page.text).toContain(`Číslo vašej objednávky je ${id}`);
++  });
++
++  it("still validates first: a resubmission of an invalid change is a 400, not a redirect", async () => {
++    const { app } = setup();
++    const form = orderForm();
++    await postOrder(app, form);
++    const res = await postOrder(app, { ...form, email: "nope" });
++    expect(res.status).toBe(400);
++  });
++
++  it("does not match a cancelled order: a repeat after a cancelled first order is a new order", async () => {
++    const orders = new InMemoryOrderStore();
++    const { app, mailer } = setup({ orders });
++    const form = orderForm();
++    const first = orderId(await postOrder(app, form));
++    orders.cancel(first);
++    mailer.sent = [];
++
++    const again = await postOrder(app, form);
++    expect(again.status).toBe(303);
++    const second = orderId(again);
++    expect(second).not.toBe(first);
++    expect(mailer.sent).toHaveLength(2);
++    expect(orders.get(first)?.status).toBe("cancelled");
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++
++    // And now that the second one is open, a third submission is a duplicate of the second, not of the first.
++    mailer.sent = [];
++    expect(orderId(await postOrder(app, form))).toBe(second);
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("a duplicate redirect is harmless if the original is cancelled meanwhile: no confirmation is shown", async () => {
++    const orders = new InMemoryOrderStore();
++    const gate: { release?: () => void } = {};
++    const held = new Promise<void>((resolve) => (gate.release = resolve));
++    const sent: Mail[] = [];
++    let calls = 0;
++    const mailer: Mailer = {
++      async send(mail) {
++        if (calls++ === 0) {
++          await held;
++          throw new Error("SMTP down");
++        }
++        sent.push(mail);
++      },
++    };
++    const app = createApp({ mailer, orders, now: () => T0 });
++    const form = orderForm();
++    const first = postOrder(app, form).then((r) => r);
++    // Let the first request reserve and block on its shop mail.
++    await vi.waitFor(() => expect(orders.countBySlot()).toEqual({ [SLOT]: 1 }));
++    const second = await postOrder(app, form);
++    expect(second.status).toBe(303);
++    const id = orderId(second);
++    gate.release?.();
++    expect((await first).status).toBe(500);
++
++    expect(orders.get(id)?.status).toBe("cancelled");
++    expect(sent).toHaveLength(0);
++    const page = await request(app).get(`/?lang=en&order=${id}`);
++    expect(page.text).not.toContain("Your order number");
++  });
++
++  describe("in the stores", () => {
++    it("an open order with the same token is returned as a copy, and nothing is inserted", () => {
++      const store = new InMemoryOrderStore();
++      const token = newFormToken();
++      const first = storedOrder({ token });
++      expect(store.reserve(first, limits)).toBe("ok");
++      const result = store.reserve(storedOrder({ token, email: first.email }), limits);
++      expect(result).toMatchObject({ status: "duplicate", order: { id: first.id } });
++      if (typeof result !== "object") throw new Error("expected a duplicate");
++      result.order.status = "cancelled";
++      expect(store.get(first.id)?.status).toBe("open");
++      expect(store.countBySlot()).toEqual({ [SLOT]: 1 });
++    });
++
++    it("ignores cancelled orders, and orders without a token never collide", () => {
++      const store = new InMemoryOrderStore();
++      const token = newFormToken();
++      const first = storedOrder({ token });
++      store.reserve(first, limits);
++      store.cancel(first.id);
++      // Identical content (same slot, email and lines), so only the cancelled status can explain "ok".
++      expect(store.reserve(storedOrder({ token, email: first.email }), limits)).toBe("ok");
++      // Tokenless orders with identical content never collide either.
++      const a = storedOrder({ token: undefined, email: "t@example.com" });
++      expect(store.reserve(a, limits)).toBe("ok");
++      expect(store.reserve(storedOrder({ token: undefined, email: a.email }), limits)).toBe("ok");
++    });
++
++    it("prefers the open order when a cancelled one with the same token also exists", () => {
++      const token = newFormToken();
++      const cancelled = storedOrder({ token, status: "cancelled", email: "same@example.com" });
++      const open = storedOrder({ token, email: "same@example.com" });
++      const store = new InMemoryOrderStore([cancelled, open]);
++      expect(store.reserve(storedOrder({ token, email: open.email }), limits)).toMatchObject({
++        status: "duplicate",
++        order: { id: open.id },
++      });
++    });
++  });
++});
++
++describe("FileOrderStore and tokens", () => {
++  let dir: string;
++  let path: string;
++  beforeEach(() => {
++    dir = mkdtempSync(join(tmpdir(), "kvasok-qa2-"));
++    path = join(dir, "orders.json");
++  });
++  afterEach(() => {
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("loads an older file without tokens and still takes new orders", () => {
++    const { token: _t, ...old } = storedOrder();
++    writeFileSync(path, JSON.stringify([old]));
++    const store = new FileOrderStore(path);
++    expect(store.get(old.id)).toEqual(old);
++    expect(store.reserve(storedOrder({ token: newFormToken() }), limits)).toBe("ok");
++  });
++
++  it.each([
++    ["uppercase", "A".repeat(32)],
++    ["too short", "a".repeat(8)],
++    ["not a string", 42],
++  ])("rejects a stored %s token", (_, token) => {
++    writeFileSync(path, JSON.stringify([{ ...storedOrder(), token }]));
++    expect(() => new FileOrderStore(path)).toThrow(/not a valid list of orders: 0\.token/);
++  });
++
++  it("writes the token and still detects the duplicate after a restart, without rewriting the file", () => {
++    const token = newFormToken();
++    const first = storedOrder({ token });
++    new FileOrderStore(path).reserve(first, limits);
++    expect(JSON.parse(readFileSync(path, "utf8"))[0].token).toBe(token);
++
++    const restarted = new FileOrderStore(path);
++    writeFileSync(path, "[]"); // marker: a duplicate must not write
++    expect(restarted.reserve(storedOrder({ token, email: first.email }), limits)).toMatchObject({
++      status: "duplicate",
++      order: { id: first.id },
++    });
++    expect(readFileSync(path, "utf8")).toBe("[]");
++  });
++
++  it("a cancelled order's token is free again after a restart", () => {
++    const token = newFormToken();
++    const first = storedOrder({ token });
++    const store = new FileOrderStore(path);
++    store.reserve(first, limits);
++    store.cancel(first.id);
++    expect(new FileOrderStore(path).reserve(storedOrder({ token, email: first.email }), limits)).toBe("ok");
++  });
++});
++
++describe("failure pages leak nothing", () => {
++  const LEAKS = [/SMTP/i, /EACCES/, /secret/i, /Error:/, /\bat [\w.<>]+ \(/, /node_modules/, /\.tsx?:\d+/, /\/srv\//, /\/tmp\//, /stack/i];
++
++  function expectNoLeak(html: string) {
++    for (const leak of LEAKS) expect(html).not.toMatch(leak);
++  }
++
++  it.each([
++    ["sk", "Prepáčte"],
++    ["en", "Sorry, something went wrong and your order has NOT been placed"],
++  ])("shop mail failure in %s: translated message, escaped values kept, nothing leaked", async (lang, text) => {
++    const mailer = new FakeMailer();
++    mailer.failOn.add(0);
++    const orders = new InMemoryOrderStore();
++    const app = createApp({ mailer, orders, now: () => T0 });
++    const form = orderForm({ name: "<b>Eva</b>", note: "</textarea><script>1</script>", phone: "0900 \"1\"" });
++    const res = await postOrder(app, form, lang);
++    expect(res.status).toBe(500);
++    expect(res.headers["content-type"]).toMatch(/html/);
++    expect(res.text).toContain(`<html lang="${lang}">`);
++    expect(alertText(res.text)).toContain(lang === "sk" ? "NEBOLA prijatá" : text);
++    expect(alertText(res.text)).not.toMatch(/[{}]/);
++    expect(res.text).toContain("&lt;b&gt;Eva&lt;/b&gt;");
++    expect(res.text).toContain("&lt;/textarea&gt;&lt;script&gt;1&lt;/script&gt;");
++    expect(res.text).toContain('value="0900 &quot;1&quot;"');
++    expect(res.text).not.toMatch(/<script/i);
++    expect(TOKEN_FIELD.exec(res.text)?.[1]).toBe(form.token);
++    expectNoLeak(res.text);
++    expect(orders.countBySlot()).toEqual({});
++    // the slot is open again on the same page
++    expect(res.text).toContain(`<option value="${SLOT}"`);
++    expect(res.text).not.toContain(`value="${SLOT}" disabled`);
++  });
++
++  it.each(["sk", "en"])("a store that cannot save, in %s: translated message and nothing leaked", async (lang) => {
++    const app = createApp({ mailer: new FakeMailer(), orders: new BrokenReserveStore(), now: () => T0 });
++    const res = await postOrder(app, orderForm(), lang);
++    expect(res.status).toBe(500);
++    expect(res.text).toContain(`<html lang="${lang}">`);
++    expect(alertText(res.text)).toBe(lang === "sk"
++      ? "Prepáčte, niečo sa pokazilo a vaša objednávka NEBOLA prijatá. Skúste to, prosím, znova alebo nám zavolajte na 02 123 456 78."
++      : "Sorry, something went wrong and your order has NOT been placed. Please try again, or call us on +421 2 123 456 78.");
++    expectNoLeak(res.text);
++    expect(errorLog).toHaveBeenCalled();
++  });
++
++  it("the shop mail error text (even with secrets in it) never reaches the response", async () => {
++    const mailer: Mailer = {
++      async send() {
++        throw new Error("535 auth failed for user shop password=hunter2");
++      },
++    };
++    const res = await postOrder(createApp({ mailer, now: () => T0 }), orderForm(), "en");
++    expect(res.status).toBe(500);
++    expect(res.text).not.toContain("hunter2");
++    expect(res.text).not.toContain("535");
++    expect(errorLog.mock.calls.flat().join(" ")).toContain("hunter2"); // it is logged for the operator
++  });
++
++  it("a contact mail failure gets the generic page, in the language asked for", async () => {
++    const mailer: Mailer = {
++      async send() {
++        throw new Error("SMTP down: password=hunter2");
++      },
++    };
++    const app = createApp({ mailer, now: () => T0 });
++    const en = await postContact(app, contactForm(), "en");
++    expect(en.status).toBe(500);
++    expect(en.text).toContain("Something went wrong");
++    expect(en.text).toContain('<html lang="en">');
++    expectNoLeak(en.text);
++    const sk = await postContact(app, contactForm(), "sk");
++    expect(sk.status).toBe(500);
++    expect(sk.text).toContain("Niečo sa pokazilo");
++    expectNoLeak(sk.text);
++    expect(en.text).not.toContain("eva@example.com");
++  });
++
++  it("the generic page for an unexpected error follows ?lang and never echoes the query", async () => {
++    class BrokenCounts extends InMemoryOrderStore {
++      override countBySlot(): never {
++        throw new Error("SMTP secret stack");
++      }
++    }
++    const app = createApp({ mailer: new FakeMailer(), orders: new BrokenCounts(), now: () => T0 });
++    for (const [q, lang] of [
++      ["?lang=en", "en"],
++      ["?lang=sk", "sk"],
++      ["", "sk"],
++      ["?lang=en&lang=sk", "sk"],
++      ["?lang=%3Cscript%3E", "sk"],
++    ] as const) {
++      const res = await request(app).get(`/${q}`);
++      expect(res.status, q).toBe(500);
++      expect(res.text, q).toContain(`<html lang="${lang}">`);
++      expect(res.text, q).not.toMatch(/<script/i);
++      expectNoLeak(res.text);
++    }
++  });
++});
++
++describe("errors raised by middleware keep their client status", () => {
++  const generic = (html: string) => {
++    expect(html).toMatch(/Something went wrong|Niečo sa pokazilo/);
++    expect(html).not.toMatch(/PayloadTooLarge|BadRequestError|UnsupportedMediaType|entity too large|at [\w.<>]+ \(|node_modules/i);
++  };
++
++  it.each([
++    ["POST /order", "/order?lang=en"],
++    ["POST /contact", "/contact?lang=en"],
++  ])("%s with a body over 20 kB is a 413 with the generic page and no log noise", async (_, url) => {
++    const { app, orders, mailer } = setup();
++    const res = await request(app).post(url).type("form").send(`a=${"x".repeat(25_000)}`);
++    expect(res.status).toBe(413);
++    expect(res.headers["content-type"]).toMatch(/html/);
++    expect(res.text).toContain('<html lang="en">');
++    generic(res.text);
++    expect(orders.countBySlot()).toEqual({});
++    expect(mailer.sent).toHaveLength(0);
++    expect(errorLog).not.toHaveBeenCalled();
++  });
++
++  it("a 413 page follows the language of the query string", async () => {
++    const res = await request(setup().app).post("/order?lang=sk").type("form").send(`a=${"x".repeat(25_000)}`);
++    expect(res.status).toBe(413);
++    expect(res.text).toContain("Niečo sa pokazilo");
++  });
++
++  it("too many parameters is a 4xx, not a 500", async () => {
++    const body = Array.from({ length: 1500 }, (_, i) => `p${i}=1`).join("&");
++    const res = await request(setup().app).post("/order").type("form").send(body);
++    expect(res.status).toBe(413);
++    generic(res.text);
++    expect(errorLog).not.toHaveBeenCalled();
++  });
++
++  it("an unsupported charset is a 415 with the generic page", async () => {
++    const res = await request(setup().app)
++      .post("/order")
++      .set("Content-Type", "application/x-www-form-urlencoded; charset=utf-7")
++      .send("a=1");
++    expect(res.status).toBe(415);
++    generic(res.text);
++    expect(errorLog).not.toHaveBeenCalled();
++  });
++
++  it("an unsupported content encoding is a 415", async () => {
++    const res = await request(setup().app)
++      .post("/contact")
++      .set("Content-Type", "application/x-www-form-urlencoded")
++      .set("Content-Encoding", "compress")
++      .send("a=1");
++    expect(res.status).toBe(415);
++    generic(res.text);
++  });
++
++  it("a corrupt gzip body is a 400, not a 500", async () => {
++    const res = await request(setup().app)
++      .post("/order")
++      .set("Content-Type", "application/x-www-form-urlencoded")
++      .set("Content-Encoding", "gzip")
++      .send(Buffer.from("this is not gzip"));
++    expect(res.status).toBe(400);
++    generic(res.text);
++    expect(errorLog).not.toHaveBeenCalled();
++  });
++
++  it("an unknown route and a data file path are plain 404s, and the orders file is never served", async () => {
++    const dir = mkdtempSync(join(tmpdir(), "kvasok-qa3-"));
++    try {
++      const store = new FileOrderStore(join(dir, "orders.json"));
++      store.reserve(storedOrder({ name: "Zuzana Nováková" }), limits);
++      const app = createApp({ mailer: new FakeMailer(), orders: store, now: () => T0 });
++      for (const url of ["/nope", "/data/orders.json", "/orders.json", "/../data/orders.json", "/%2e%2e/data/orders.json"]) {
++        const res = await request(app).get(url);
++        expect(res.status, url).toBe(404);
++        expect(res.text, url).not.toContain("Nováková");
++      }
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/test/helpers.ts b/test/helpers.ts
+new file mode 100644
+index 0000000..831df32
+--- /dev/null
++++ b/test/helpers.ts
+@@ -0,0 +1,83 @@
++import request from "supertest";
++import { createApp } from "../src/app.js";
++import type { Mail, Mailer } from "../src/mailer.js";
++import { InMemoryOrderStore, newFormToken, type Order, type OrderStore } from "../src/orders.js";
++
++export class FakeMailer implements Mailer {
++  sent: Mail[] = [];
++  /** Indexes of send() calls (0-based) that throw. */
++  failOn = new Set<number>();
++  private calls = 0;
++  async send(mail: Mail) {
++    if (this.failOn.has(this.calls++)) throw new Error("SMTP down");
++    this.sent.push(mail);
++  }
++}
++
++/** Friday 2026-11-06 09:00 in Bratislava. */
++export const T0 = new Date("2026-11-06T08:00:00Z");
++/** Saturday 2026-11-07 09:00, the first slot on offer at T0. */
++export const SLOT = "2026-11-07T09:00";
++
++export function setup({ now = T0, orders = new InMemoryOrderStore() }: { now?: Date; orders?: OrderStore } = {}) {
++  const mailer = new FakeMailer();
++  return { mailer, orders, app: createApp({ mailer, orders, now: () => now }) };
++}
++
++export type TestApp = ReturnType<typeof setup>["app"];
++
++/**
++ * A valid order form as the browser posts it: empty honeypot and a fresh form token per call,
++ * so two calls are two separate orders while posting the same object twice is a double submit.
++ */
++export function orderForm(overrides: Record<string, string> = {}): Record<string, string> {
++  return {
++    "qty_kvaskovy-chlieb": "2",
++    qty_croissant: "3",
++    slot: SLOT,
++    name: "Eva",
++    email: "eva@example.com",
++    phone: "",
++    note: "Sliced, please",
++    website: "",
++    token: newFormToken(),
++    ...overrides,
++  };
++}
++
++export function postOrder(app: TestApp, form: Record<string, string> | string, lang: string | null = "en") {
++  return request(app)
++    .post(lang === null ? "/order" : `/order?lang=${lang}`)
++    .type("form")
++    .send(form);
++}
++
++/** Order id from a successful order redirect. */
++export function orderId(res: request.Response): string {
++  const id = /[?&]order=([0-9A-F]{8})#order$/.exec(res.headers.location ?? "")?.[1];
++  if (!id) throw new Error(`not an order redirect: ${res.status} ${res.headers.location}`);
++  return id;
++}
++
++let seq = 0;
++/** A stored order with a unique id and email. Ids are 8 hex characters starting with "E". */
++export function storedOrder(overrides: Partial<Order> = {}): Order {
++  seq++;
++  return {
++    id: `E${String(seq).padStart(7, "0")}`,
++    slot: SLOT,
++    lines: [{ productId: "bageta", qty: 1, unitPriceCents: 190 }],
++    totalCents: 190,
++    name: "Someone",
++    email: `someone${seq}@example.com`,
++    lang: "sk",
++    status: "open",
++    createdAt: T0.toISOString(),
++    ...overrides,
++  };
++}
++
++/** Text of the first role="alert" paragraph on the page, or undefined. */
++export function alertText(html: string): string | undefined {
++  return /<p role="alert">([^<]*)<\/p>/.exec(html)?.[1];
++}
+diff --git a/test/order-edge.test.ts b/test/order-edge.test.ts
+new file mode 100644
+index 0000000..1f286bc
+--- /dev/null
++++ b/test/order-edge.test.ts
+@@ -0,0 +1,547 @@
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
++import { SHOP_EMAIL } from "../src/mailer.js";
++import { InMemoryOrderStore } from "../src/orders.js";
++import { alertText, orderForm, orderId, postOrder, setup, SLOT, storedOrder, T0 } from "./helpers.js";
++
++const CONTACT_OK = "email=eva%40example.com&message=Hello";
++
++describe("repeated form fields (array values in the body)", () => {
++  // Regression: express.urlencoded({ extended: false }) turns a repeated field into an array. /contact used to
++  // pass it straight to escapeHtml() outside its try, so the async handler rejected, Express 4 never answered and
++  // the request hung (on Node >= 15 the unhandled rejection would also kill the process). The short timeouts keep
++  // a regression from stalling the suite.
++  it("POST /contact with a repeated field is a 400 with the form re-rendered, not a 500 or a hang", async () => {
++    const { app, mailer } = setup();
++    const res = await request(app).post("/contact").type("form").send(`name=Eva&name=Adam&${CONTACT_OK}`).timeout(1500);
++    expect(res.status).toBe(400);
++    expect(res.text).toContain('role="alert"');
++    expect(mailer.sent).toHaveLength(0);
++  }, 3000);
++
++  it.each(["name", "email", "message"])(
++    "POST /contact with %s repeated still answers 400 and echoes the other fields, escaped",
++    async (field) => {
++      const { app } = setup();
++      const fields: Record<string, string> = { name: "Eva", email: "eva@example.com", message: "Hi <b>" };
++      const body = `${new URLSearchParams(fields).toString()}&${field}=again`;
++      const res = await request(app).post("/contact").type("form").send(body).timeout(1500);
++      expect(res.status).toBe(400);
++      if (field !== "name") expect(res.text).toContain('value="Eva"');
++      if (field !== "message") expect(res.text).toContain("Hi &lt;b&gt;</textarea>");
++    },
++    3000,
++  );
++
++  it.each(["name", "email", "phone", "note", "slot", "qty_croissant", "qty_medovnik"])(
++    "POST /order with %s repeated is a 400 and creates nothing",
++    async (field) => {
++      const { app, mailer, orders } = setup();
++      const base = new URLSearchParams(orderForm({ qty_medovnik: "0" })).toString();
++      const res = await postOrder(app, `${base}&${field}=second`);
++      expect(res.status).toBe(400);
++      expect(alertText(res.text)).toContain("Please check the quantities");
++      expect(mailer.sent).toHaveLength(0);
++      expect(orders.countBySlot()).toEqual({});
++    },
++  );
++
++  it("POST /order with a repeated field still echoes the other fields, escaped", async () => {
++    const { app } = setup();
++    const base = new URLSearchParams(orderForm({ name: "<i>Eva</i>" })).toString();
++    const res = await postOrder(app, `${base}&email=second%40example.com`);
++    expect(res.status).toBe(400);
++    expect(res.text).toContain('value="&lt;i&gt;Eva&lt;/i&gt;"');
++    expect(res.text).not.toContain("<i>Eva</i>");
++  });
++
++  it("a repeated ?lang or ?order query value does not crash the pages", async () => {
++    const { app } = setup();
++    expect((await request(app).get("/?lang=en&lang=sk")).status).toBe(200);
++    expect((await request(app).get("/?order=AAAAAAAA&order=BBBBBBBB")).status).toBe(200);
++    expect((await postOrder(app, "x=1", "en&lang=sk")).status).toBe(400);
++  });
++});
++
++describe("other malformed bodies", () => {
++  it("an empty POST /order is a 400", async () => {
++    const res = await request(setup().app).post("/order");
++    expect(res.status).toBe(400);
++  });
++
++  it("a JSON body is ignored (only urlencoded forms are parsed) and is a 400", async () => {
++    const { app, orders } = setup();
++    const res = await request(app).post("/order").send(orderForm());
++    expect(res.status).toBe(400);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("a body over 20 kB is refused with 413 and creates nothing", async () => {
++    const { app, orders, mailer } = setup();
++    const res = await postOrder(app, `${new URLSearchParams(orderForm()).toString()}&pad=${"x".repeat(25_000)}`);
++    expect(res.status).toBe(413);
++    expect(orders.countBySlot()).toEqual({});
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("client-supplied id, status, createdAt, lines and total never reach the stored order", async () => {
++    const { app, orders } = setup();
++    const res = await postOrder(
++      app,
++      orderForm({ id: "ABCDEF12", status: "cancelled", createdAt: "2000-01-01", lines: "[]", total: "0", lang: "sk" }),
++    );
++    const id = orderId(res);
++    const stored = orders.get(id)!;
++    expect(id).not.toBe("ABCDEF12");
++    expect(stored.status).toBe("open");
++    expect(stored.createdAt).toBe(T0.toISOString());
++    expect(stored.lang).toBe("en");
++    expect(stored.lines).toEqual([
++      { productId: "kvaskovy-chlieb", qty: 2, unitPriceCents: 520 },
++      { productId: "croissant", qty: 3, unitPriceCents: 180 },
++    ]);
++  });
++});
++
++describe("HTML escaping of every echoed field", () => {
++  const evil = `"><script>alert(1)</script>'&`;
++  const escaped = "&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&#39;&amp;";
++
++  it("escapes name, email, phone and quantities after an invalid submission", async () => {
++    const { app } = setup();
++    const res = await postOrder(
++      app,
++      orderForm({ name: evil, email: evil, phone: `"><b>'&`, qty_croissant: evil, evil_extra: evil }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.text).not.toMatch(/<script/i);
++    expect(res.text).toContain(`name="name" required maxlength="100" autocomplete="name" value="${escaped}"`);
++    expect(res.text).toContain(`autocomplete="email" value="${escaped}"`);
++    expect(res.text).toContain('autocomplete="tel" value="&quot;&gt;&lt;b&gt;&#39;&amp;"');
++    expect(res.text).toContain(`name="qty_croissant" type="number" inputmode="numeric" min="0" max="20" step="1" value="${escaped}"`);
++    expect(res.text).not.toContain("evil_extra");
++  });
++
++  it("escapes the note, including an attempt to close the textarea", async () => {
++    const { app } = setup();
++    const note = `</textarea><script>alert(1)</script><textarea>`;
++    const res = await postOrder(app, orderForm({ note, email: "nope" }));
++    expect(res.status).toBe(400);
++    expect(res.text).not.toMatch(/<script/i);
++    expect(res.text).toContain("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;textarea&gt;</textarea>");
++  });
++
++  it("escapes values on every kind of rejection, not just the schema one", async () => {
++    const { app } = setup();
++    const payload = { name: `<img src=x onerror=alert(1)>`, note: `<script>1</script>`, phone: `<b>1</b>` };
++    const cases = [
++      orderForm({ ...payload, "qty_kvaskovy-chlieb": "0", qty_croissant: "0" }), // empty
++      orderForm({ ...payload, slot: "2026-11-09T09:00" }), // slotGone
++      orderForm({ ...payload, qty_medovnik: "4", slot: "2026-11-10T09:00" }), // cakeMax
++      orderForm({ ...payload, qty_medovnik: "1" }), // cakeNotice
++    ];
++    for (const form of cases) {
++      const res = await postOrder(app, form);
++      expect(res.status).toBe(400);
++      expect(res.text).not.toMatch(/<script|<img/i);
++      expect(res.text).toContain("&lt;img src=x onerror=alert(1)&gt;");
++      expect(res.text).toContain("&lt;script&gt;1&lt;/script&gt;");
++      expect(res.text).toContain("&lt;b&gt;1&lt;/b&gt;");
++    }
++  });
++
++  it("escapes the contact form values too", async () => {
++    const res = await request(setup().app)
++      .post("/contact")
++      .type("form")
++      .send({ name: evil, email: evil, message: "</textarea><script>1</script>" });
++    expect(res.status).toBe(400);
++    expect(res.text).not.toMatch(/<script/i);
++    expect(res.text).toContain(`value="${escaped}"`);
++  });
++});
++
++describe("language handling", () => {
++  it("renders the 400 page in Slovak for ?lang=sk, with a Slovak form action", async () => {
++    const { app } = setup();
++    const res = await postOrder(app, orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0" }), "sk");
++    expect(res.status).toBe(400);
++    expect(res.text).toContain('<html lang="sk">');
++    expect(alertText(res.text)).toBe("Vyberte, prosím, aspoň jednu položku.");
++    expect(res.text).toContain('action="/order?lang=sk#order"');
++  });
++
++  it("renders the 400 page in English for ?lang=en", async () => {
++    const { app } = setup();
++    const res = await postOrder(app, orderForm({ email: "nope" }), "en");
++    expect(res.text).toContain('<html lang="en">');
++    expect(alertText(res.text)).toContain("Please check the quantities");
++    expect(res.text).toContain('action="/order?lang=en#order"');
++  });
++
++  it.each([[null], ["fr"], ["EN"], [""]])("falls back to Slovak for lang=%s", async (lang) => {
++    const { app, mailer } = setup();
++    const res = await postOrder(app, orderForm({ email: "nope" }), lang);
++    expect(res.text).toContain('<html lang="sk">');
++    const ok = await postOrder(app, orderForm(), lang);
++    expect(ok.headers.location).toMatch(/^\/\?lang=sk&order=[0-9A-F]{8}#order$/);
++    expect(mailer.sent[1]!.text).toContain("Ďakujeme za objednávku");
++  });
++
++  it("the confirmation page follows ?lang, whatever language the order was placed in", async () => {
++    const { app } = setup();
++    const id = orderId(await postOrder(app, orderForm(), "en"));
++
++    const sk = await request(app).get(`/?lang=sk&order=${id}`);
++    expect(sk.text).toContain('<html lang="sk">');
++    expect(sk.text).toContain(`Ďakujeme! Číslo vašej objednávky je ${id}.`);
++    expect(sk.text).toContain("Vyzdvihnutie: sobota 7. novembra, 09:00");
++    expect(sk.text).toMatch(/2× Kváskový chlieb 1 kg<\/span> <strong>10,40\s€/);
++    expect(sk.text).toContain("Platíte pri vyzdvihnutí.");
++
++    const en = await request(app).get(`/?lang=en&order=${id}`);
++    expect(en.text).toContain(`Your order number is ${id}.`);
++    expect(en.text).toContain("Pickup: Saturday 7 November, 09:00");
++    expect(en.text).toContain("3× Butter croissant</span> <strong>€5.40");
++
++    const bare = await request(app).get(`/?order=${id}`);
++    expect(bare.text).toContain('<html lang="sk">');
++    expect(bare.text).toContain(`Číslo vašej objednávky je ${id}`);
++  });
++
++  it("every order error renders without raw {placeholders}, in both languages", async () => {
++    const full = new InMemoryOrderStore(Array.from({ length: 8 }, () => storedOrder({})));
++    const busy = new InMemoryOrderStore(
++      ["2026-11-07T10:00", "2026-11-07T11:00", "2026-11-07T12:00"].map((slot) => storedOrder({ slot, email: "eva@example.com" })),
++    );
++    const cases: [string, Parameters<typeof setup>[0], Record<string, string>][] = [
++      ["invalid", {}, { email: "nope" }],
++      ["empty", {}, { "qty_kvaskovy-chlieb": "0", qty_croissant: "0" }],
++      ["slotGone", {}, { slot: "2026-11-09T09:00" }],
++      ["slotTaken", { orders: full }, {}],
++      ["cakeNotice", {}, { qty_medovnik: "1" }],
++      ["cakeMax", {}, { qty_medovnik: "4", slot: "2026-11-10T09:00" }],
++      ["tooManyOrders", { orders: busy }, {}],
++    ];
++    const seen = new Set<string>();
++    for (const lang of ["sk", "en"]) {
++      for (const [code, opts, overrides] of cases) {
++        const res = await postOrder(setup(opts).app, orderForm(overrides), lang);
++        expect(res.status, `${lang} ${code}`).toBe(400);
++        const text = alertText(res.text) ?? "";
++        expect(text, `${lang} ${code}`).not.toMatch(/[{}]/);
++        expect(text.length, `${lang} ${code}`).toBeGreaterThan(10);
++        seen.add(`${lang}:${text}`);
++      }
++    }
++    expect(seen.size).toBe(14);
++  });
++});
++
++describe("confirmation page ids", () => {
++  it("shows a confirmation for an open order id only in its exact (uppercase) form", async () => {
++    // A fixed id with letters in it: a random id could be all digits, which has no lowercase form.
++    const id = "AB12CD34";
++    const { app } = setup({ orders: new InMemoryOrderStore([storedOrder({ id })]) });
++    expect((await request(app).get(`/?lang=en&order=${id}`)).text).toContain("Your order number");
++    expect((await request(app).get(`/?lang=en&order=${id.toLowerCase()}`)).text).not.toContain("Your order number");
++    expect((await request(app).get(`/?lang=en&order=${id}0`)).text).not.toContain("Your order number");
++    expect((await request(app).get(`/?lang=en&order=%20${id}`)).text).not.toContain("Your order number");
++  });
++
++  it("answers an unknown but well-formed id and an empty id with the plain page", async () => {
++    const { app } = setup();
++    for (const q of ["order=DEADBEEF", "order=", "order", "order[]=DEADBEEF", "order[a]=b"]) {
++      const res = await request(app).get(`/?lang=en&${q}`);
++      expect(res.status, q).toBe(200);
++      expect(res.text, q).not.toContain("Your order number");
++      expect(res.text, q).toContain('<form method="post" action="/order');
++    }
++  });
++
++  it("does not confirm a cancelled order, and does not distinguish it from an unknown one", async () => {
++    const orders = new InMemoryOrderStore([storedOrder({ id: "CAFE0001", status: "cancelled" })]);
++    const { app } = setup({ orders });
++    const cancelled = await request(app).get("/?lang=en&order=CAFE0001");
++    const unknown = await request(app).get("/?lang=en&order=CAFE0002");
++    expect(cancelled.status).toBe(200);
++    // Every page carries its own random form token; apart from that the pages must be identical.
++    const tokenField = /name="token" value="[0-9a-f]{32}"/g;
++    expect(cancelled.text.match(tokenField)).toHaveLength(1);
++    expect(unknown.text.match(tokenField)).toHaveLength(1);
++    expect(cancelled.text.match(tokenField)![0]).not.toBe(unknown.text.match(tokenField)![0]);
++    const withoutToken = (html: string) => html.replace(tokenField, 'name="token" value=""');
++    expect(withoutToken(cancelled.text)).toBe(withoutToken(unknown.text));
++    expect(cancelled.text).not.toContain("CAFE0001");
++  });
++
++  it("contains no personal data: no name, email, phone or note", async () => {
++    const { app } = setup();
++    const form = orderForm({
++      name: "Zuzana Nováková",
++      email: "zuzana.novakova@example.com",
++      phone: "0900 111 222",
++      note: "SecretNote ring twice",
++    });
++    for (const lang of ["sk", "en"]) {
++      const id = orderId(await postOrder(app, form, lang));
++      const page = await request(app).get(`/?lang=${lang}&order=${id}`);
++      for (const pii of ["Zuzana", "Nováková", "zuzana.novakova", "0900 111 222", "SecretNote", "ring twice"]) {
++        expect(page.text, pii).not.toContain(pii);
++      }
++    }
++  });
++
++  it("a placed order is redirected, not rendered, so reloading the confirmation never re-posts", async () => {
++    const { app, orders } = setup();
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(303);
++    expect(res.text).not.toContain("Your order number");
++    expect(Object.values(orders.countBySlot())).toEqual([1]);
++  });
++});
++
++describe("capacity counts open orders only", () => {
++  const manyAtSlot = (open: number, cancelled: number) =>
++    new InMemoryOrderStore([
++      ...Array.from({ length: open }, () => storedOrder({})),
++      ...Array.from({ length: cancelled }, () => storedOrder({ status: "cancelled" })),
++      storedOrder({ slot: "2026-11-05T09:00" }),
++    ]);
++
++  it("7 open + many cancelled: the slot is not marked full and one more order fits", async () => {
++    const { app } = setup({ orders: manyAtSlot(7, 5) });
++    const page = await request(app).get("/?lang=en");
++    expect(page.text).toContain(`<option value="${SLOT}">09:00</option>`);
++    expect((await postOrder(app, orderForm())).status).toBe(303);
++    const after = await request(app).get("/?lang=en");
++    expect(after.text).toContain(`<option value="${SLOT}" disabled>`);
++  });
++
++  it("8 open: full, even with cancelled ones around; the 9th is refused", async () => {
++    const { app, mailer } = setup({ orders: manyAtSlot(8, 3) });
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("has just filled up");
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("a full slot does not block the neighbouring slot", async () => {
++    const { app } = setup({ orders: manyAtSlot(8, 0) });
++    expect((await postOrder(app, orderForm({ slot: "2026-11-07T09:30" }))).status).toBe(303);
++  });
++
++  it("concurrent requests cannot oversell the last places in a slot", async () => {
++    const { app, orders, mailer } = setup({ orders: manyAtSlot(5, 0) });
++    const results = await Promise.all(
++      Array.from({ length: 6 }, (_, i) => postOrder(app, orderForm({ email: `racer${i}@example.com` }))),
++    );
++    expect(results.filter((r) => r.status === 303)).toHaveLength(3);
++    expect(results.filter((r) => r.status === 400)).toHaveLength(3);
++    expect(orders.countBySlot()[SLOT]).toBe(8);
++    expect(mailer.sent).toHaveLength(6); // 3 orders x (shop + customer)
++  });
++
++  it("concurrent requests from one email cannot exceed 3 open orders", async () => {
++    const { app, orders } = setup();
++    const slots = ["09:00", "09:30", "10:00", "10:30", "11:00"].map((t) => `2026-11-07T${t}`);
++    const results = await Promise.all(slots.map((slot) => postOrder(app, orderForm({ slot, email: "Same@Example.com" }))));
++    expect(results.filter((r) => r.status === 303)).toHaveLength(3);
++    expect(Object.values(orders.countBySlot()).reduce((a, b) => a + b, 0)).toBe(3);
++  });
++});
++
++describe("cut-off and time zone through the HTTP layer", () => {
++  it("accepts a Saturday slot at Friday 13:59:59 local and refuses it at 14:00:00", async () => {
++    const ok = setup({ now: new Date("2026-11-06T12:59:59Z") });
++    expect((await postOrder(ok.app, orderForm())).status).toBe(303);
++    const late = setup({ now: new Date("2026-11-06T13:00:00Z") });
++    const res = await postOrder(late.app, orderForm());
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("no longer available");
++    expect(late.orders.countBySlot()).toEqual({});
++  });
++
++  it("closes Tuesday at Sunday 12:00 local", async () => {
++    const tuesday = orderForm({ slot: "2026-11-10T09:00" });
++    expect((await postOrder(setup({ now: new Date("2026-11-08T10:59:59Z") }).app, tuesday)).status).toBe(303);
++    expect((await postOrder(setup({ now: new Date("2026-11-08T11:00:00Z") }).app, tuesday)).status).toBe(400);
++  });
++
++  it("treats shortly after local midnight as the new day: same-day pickup is refused", async () => {
++    // 23:30Z on Friday is 00:30 on Saturday in Bratislava.
++    const { app } = setup({ now: new Date("2026-11-06T23:30:00Z") });
++    const res = await postOrder(app, orderForm());
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("no longer available");
++    expect((await postOrder(app, orderForm({ slot: "2026-11-08T09:00" }))).status).toBe(303);
++  });
++
++  it("counts cake notice in local calendar days across local midnight", async () => {
++    const cake = (slot: string) => orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0", qty_medovnik: "1", slot });
++    // 22:59:59Z Friday is still Friday 23:59 locally: Sunday is two days away.
++    const before = setup({ now: new Date("2026-11-06T22:59:59Z") });
++    expect((await postOrder(before.app, cake("2026-11-08T09:00"))).status).toBe(303);
++    // 23:00:00Z is Saturday 00:00 locally: Sunday is only one day away, Tuesday is the first cake day (Monday is closed).
++    const after = setup({ now: new Date("2026-11-06T23:00:00Z") });
++    const res = await postOrder(after.app, cake("2026-11-08T09:00"));
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("Cakes need 2 days");
++    expect((await postOrder(after.app, cake("2026-11-10T09:00"))).status).toBe(303);
++  });
++});
++
++describe("limits at their exact boundaries", () => {
++  it.each([
++    ["name of 100 characters", { name: "n".repeat(100) }],
++    ["phone of 30 characters", { phone: "9".repeat(30) }],
++    ["note of 500 characters", { note: "x".repeat(500) }],
++    ["quantity of exactly 20", { qty_croissant: "20" }],
++    ["quantity written 020", { qty_croissant: "020" }],
++    ["quantity with spaces", { qty_croissant: " 4 " }],
++    ["whitespace-only phone", { phone: "   " }],
++    ["whitespace-only note", { note: "   " }],
++    ["email with surrounding spaces", { email: "  eva@example.com  " }],
++    ["a multi-line note", { note: "line one\r\nline two" }],
++    ["missing optional fields", { phone: undefined as unknown as string, note: undefined as unknown as string }],
++  ])("accepts %s", async (_, overrides) => {
++    const form = orderForm(overrides);
++    for (const k of Object.keys(form)) if (form[k] === undefined) delete form[k];
++    const { app } = setup();
++    expect((await postOrder(app, form)).status).toBe(303);
++  });
++
++  it.each([
++    ["name of 101 characters", { name: "n".repeat(101) }],
++    ["phone of 31 characters", { phone: "9".repeat(31) }],
++    ["a lone CR in the name", { name: "Eva\rBcc: x@example.com" }],
++    ["a lone LF in the name", { name: "Eva\nBcc: x@example.com" }],
++    ["a CR in the phone", { phone: "0900\r123" }],
++    ["a trailing newline in the name", { name: "Eva\n" }],
++    ["an email with an embedded newline", { email: "eva@example.com\nBcc: x@example.com" }],
++    ["an email with a comma list", { email: "a@example.com,b@example.com" }],
++    ["an empty slot", { slot: "" }],
++    ["a missing slot", { slot: undefined as unknown as string }],
++    ["quantity 000021", { qty_croissant: "000021" }],
++    ["quantity 1e1", { qty_croissant: "1e1" }],
++    ["quantity +5", { qty_croissant: "+5" }],
++  ])("rejects %s", async (_, overrides) => {
++    const form = orderForm(overrides);
++    for (const k of Object.keys(form)) if (form[k] === undefined) delete form[k];
++    const { app, mailer, orders } = setup();
++    const res = await postOrder(app, form);
++    expect(res.status).toBe(400);
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++  });
++
++  it("20 of a bread item prices at 20 x the menu price and a cake quantity of 20 is a cake-limit error, not a schema error", async () => {
++    const { app, orders } = setup();
++    const id = orderId(await postOrder(app, orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0", qty_bageta: "20" })));
++    expect(orders.get(id)!.totalCents).toBe(20 * 190);
++    const res = await postOrder(app, orderForm({ qty_medovnik: "20", slot: "2026-11-10T09:00" }));
++    expect(alertText(res.text)).toContain("At most 3 cakes per order");
++  });
++
++  it("3 cakes are allowed from the second day on and are priced at 38 EUR each", async () => {
++    const { app, orders } = setup();
++    const id = orderId(
++      await postOrder(app, orderForm({ "qty_kvaskovy-chlieb": "0", qty_croissant: "0", qty_medovnik: "3", slot: "2026-11-08T09:00" })),
++    );
++    expect(orders.get(id)!.totalCents).toBe(11400);
++  });
++
++  it("one cake in a mixed order makes the whole order subject to the cake notice", async () => {
++    const { app, orders } = setup();
++    const res = await postOrder(app, orderForm({ qty_medovnik: "1" }));
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("Cakes need 2 days");
++    expect(orders.countBySlot()).toEqual({});
++  });
++});
++
++describe("mail content", () => {
++  it("keeps free text out of the shop subject and out of every header-like field", async () => {
++    const { app, mailer } = setup();
++    await postOrder(
++      app,
++      orderForm({ name: "Eva Bcc: x", note: "Subject: pwned\r\nBcc: attacker@example.com", phone: "0900 1" }),
++    );
++    const [shop] = mailer.sent;
++    expect(shop!.to).toBe(SHOP_EMAIL);
++    expect(shop!.replyTo).toBe("eva@example.com");
++    expect(shop!.subject).toMatch(/^Objednávka [0-9A-F]{8} — sobota 7\. novembra, 09:00$/);
++    expect(shop!.subject).not.toMatch(/[\r\n]/);
++    expect(shop!.text).toContain("Subject: pwned\r\nBcc: attacker@example.com");
++  });
++
++  it("sends the shop a Slovak mail even for an English customer, in the order shop-then-customer", async () => {
++    const { app, mailer } = setup();
++    await postOrder(app, orderForm({ phone: "" , note: "" }), "en");
++    const [shop, customer] = mailer.sent;
++    expect(shop!.to).toBe(SHOP_EMAIL);
++    expect(customer!.to).toBe("eva@example.com");
++    expect(shop!.text).toContain("Vyzdvihnutie: sobota 7. novembra, 09:00");
++    expect(shop!.text).toMatch(/Spolu: 15,80\s€/);
++    expect(shop!.text).toContain("Telefón: —");
++    expect(shop!.text).toContain("Jazyk: en");
++    expect(shop!.text).toMatch(/Poznámka:\n—$/);
++    expect(customer!.text).toContain("Saturday 7 November, 09:00");
++    expect(customer!.text).toContain("Total: €15.80");
++  });
++
++  it("sends the customer no free text (name, phone, note) and uses the trimmed address", async () => {
++    const { app, mailer } = setup();
++    await postOrder(app, orderForm({ name: "Zuzana Nováková", phone: "0900 111 222", note: "SecretNote", email: " eva@example.com " }), "sk");
++    const customer = mailer.sent[1]!;
++    expect(customer.to).toBe("eva@example.com");
++    expect(customer.replyTo).toBeUndefined();
++    for (const free of ["Zuzana", "Nováková", "0900 111 222", "SecretNote"]) {
++      expect(customer.text).not.toContain(free);
++      expect(customer.subject).not.toContain(free);
++    }
++    expect(customer.subject).toMatch(/^Kvások & syn: objednávka [0-9A-F]{8}, vyzdvihnutie sobota 7\. novembra, 09:00$/);
++  });
++});
++
++describe("shop mail failure", () => {
++  let errorLog: MockInstance;
++  beforeEach(() => {
++    errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
++  });
++  afterEach(() => {
++    errorLog.mockRestore();
++  });
++
++  it("cancels the order, answers 500, sends no customer mail, and frees both the slot and the email allowance", async () => {
++    const { app, mailer, orders } = setup();
++    mailer.failOn.add(0);
++    const failed = await postOrder(app, orderForm());
++    expect(failed.status).toBe(500);
++    expect(errorLog).toHaveBeenCalled();
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({});
++    // Three more orders from the same address still fit: the cancelled one does not count.
++    for (const slot of ["2026-11-07T09:30", "2026-11-07T10:00", "2026-11-07T10:30"]) {
++      expect((await postOrder(app, orderForm({ slot }))).status).toBe(303);
++    }
++  });
++
++  it("does not leave the failed order readable through the confirmation page", async () => {
++    class SpyStore extends InMemoryOrderStore {
++      reservedIds: string[] = [];
++      override reserve(...args: Parameters<InMemoryOrderStore["reserve"]>) {
++        this.reservedIds.push(args[0].id);
++        return super.reserve(...args);
++      }
++    }
++    const orders = new SpyStore();
++    const { app, mailer } = setup({ orders });
++    mailer.failOn.add(0);
++    expect((await postOrder(app, orderForm())).status).toBe(500);
++    const [failedId] = orders.reservedIds;
++    expect(orders.get(failedId!)?.status).toBe("cancelled");
++    const page = await request(app).get(`/?lang=en&order=${failedId}`);
++    expect(page.text).not.toContain("Your order number");
++  });
++});
+diff --git a/test/orders.test.ts b/test/orders.test.ts
+new file mode 100644
+index 0000000..4442e6d
+--- /dev/null
++++ b/test/orders.test.ts
+@@ -0,0 +1,262 @@
++import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, describe, expect, it } from "vitest";
++import {
++  customerOrderMail,
++  FileOrderStore,
++  InMemoryOrderStore,
++  newFormToken,
++  newOrderId,
++  priceLines,
++  shopOrderMail,
++  type Order,
++  type ReserveLimits,
++} from "../src/orders.js";
++
++const limits: ReserveLimits = { capacity: 2, maxOpenPerEmail: 2, nowSlot: "2026-11-06T09:00" };
++
++let n = 0;
++function order(overrides: Partial<Order> = {}): Order {
++  n++;
++  return {
++    id: `0000000${n}`.slice(-8),
++    slot: "2026-11-07T09:00",
++    lines: [{ productId: "bageta", qty: 1, unitPriceCents: 190 }],
++    totalCents: 190,
++    name: "Eva",
++    email: `eva${n}@example.com`,
++    lang: "en",
++    status: "open",
++    createdAt: "2026-11-06T08:00:00.000Z",
++    ...overrides,
++  };
++}
++
++describe("newOrderId", () => {
++  it("is 8 uppercase hex characters", () => {
++    expect(newOrderId()).toMatch(/^[0-9A-F]{8}$/);
++  });
++});
++
++describe("priceLines", () => {
++  it("prices from the menu and leaves out zero quantities", () => {
++    expect(priceLines({ "kvaskovy-chlieb": 2, croissant: 3, bageta: 0 })).toEqual({
++      lines: [
++        { productId: "kvaskovy-chlieb", qty: 2, unitPriceCents: 520 },
++        { productId: "croissant", qty: 3, unitPriceCents: 180 },
++      ],
++      totalCents: 1580,
++    });
++  });
++
++  it("ignores unknown products", () => {
++    expect(priceLines({ "free-cake": 5 })).toEqual({ lines: [], totalCents: 0 });
++  });
++});
++
++describe("order mails", () => {
++  const o = order({
++    id: "AB12CD34",
++    name: "Eva <b>",
++    email: "eva@example.com",
++    phone: "0900 123 456",
++    note: "Sliced, please",
++    lines: [{ productId: "kvaskovy-chlieb", qty: 2, unitPriceCents: 520 }],
++    totalCents: 1040,
++  });
++
++  it("sends the shop a Slovak mail with reply-to and no user input in the subject", () => {
++    const mail = shopOrderMail(o, "shop@example.com");
++    expect(mail).toMatchObject({ to: "shop@example.com", replyTo: "eva@example.com" });
++    expect(mail.subject).toBe("Objednávka AB12CD34 — sobota 7. novembra, 09:00");
++    expect(mail.text).toContain("2× Kváskový chlieb 1 kg");
++    expect(mail.text).toMatch(/Spolu: 10,40\s€/);
++    expect(mail.text).toContain("Eva <b>");
++    expect(mail.text).toContain("0900 123 456");
++    expect(mail.text).toContain("Sliced, please");
++  });
++
++  it("sends the customer a mail in their language without the note", () => {
++    const mail = customerOrderMail(o);
++    expect(mail.to).toBe("eva@example.com");
++    expect(mail.subject).toContain("AB12CD34");
++    expect(mail.text).toContain("Saturday 7 November, 09:00");
++    expect(mail.text).toContain("2× Sourdough loaf 1 kg");
++    expect(mail.text).not.toContain("Sliced");
++  });
++});
++
++describe("InMemoryOrderStore", () => {
++  it("fills a slot up to capacity, counting only open orders", () => {
++    const store = new InMemoryOrderStore();
++    const first = order();
++    expect(store.reserve(first, limits)).toBe("ok");
++    expect(store.reserve(order(), limits)).toBe("ok");
++    expect(store.reserve(order(), limits)).toBe("slotFull");
++    expect(store.countBySlot()).toEqual({ "2026-11-07T09:00": 2 });
++
++    store.cancel(first.id);
++    expect(store.get(first.id)?.status).toBe("cancelled");
++    expect(store.countBySlot()).toEqual({ "2026-11-07T09:00": 1 });
++    expect(store.reserve(order(), limits)).toBe("ok");
++  });
++
++  it("limits open future orders per email, ignoring case and spaces", () => {
++    const store = new InMemoryOrderStore();
++    expect(store.reserve(order({ email: "Jan@Example.com", slot: "2026-11-07T10:00" }), limits)).toBe("ok");
++    expect(store.reserve(order({ email: "jan@example.com", slot: "2026-11-07T11:00" }), limits)).toBe("ok");
++    expect(store.reserve(order({ email: " JAN@example.com ", slot: "2026-11-07T12:00" }), limits)).toBe("emailLimit");
++  });
++
++  it("does not count cancelled or past orders against the email limit", () => {
++    const store = new InMemoryOrderStore([
++      order({ email: "jan@example.com", slot: "2026-11-05T10:00" }),
++      order({ email: "jan@example.com", slot: "2026-11-06T09:00" }),
++      order({ email: "jan@example.com", slot: "2026-11-07T10:00", status: "cancelled" }),
++      order({ email: "jan@example.com", slot: "2026-11-07T11:00" }),
++    ]);
++    expect(store.reserve(order({ email: "jan@example.com", slot: "2026-11-07T12:00" }), limits)).toBe("ok");
++    expect(store.reserve(order({ email: "jan@example.com", slot: "2026-11-07T13:00" }), limits)).toBe("emailLimit");
++  });
++
++  it("returns the open order with the same form token instead of inserting a duplicate", () => {
++    const store = new InMemoryOrderStore();
++    const token = newFormToken();
++    const first = order({ token });
++    expect(store.reserve(first, limits)).toBe("ok");
++    // Same content: email compared trimmed and lowercased, lines in any order.
++    const resubmitted = order({ token, email: ` ${first.email.toUpperCase()} `, lines: [...first.lines].reverse() });
++    expect(store.reserve(resubmitted, limits)).toEqual({ status: "duplicate", order: first });
++    expect(store.findDuplicate(resubmitted)).toEqual(first);
++    expect(store.countBySlot()).toEqual({ "2026-11-07T09:00": 1 });
++  });
++
++  it.each([
++    ["slot", { slot: "2026-11-07T10:00" }],
++    ["email", { email: "someone-else@example.com" }],
++    ["quantity", { lines: [{ productId: "bageta", qty: 2, unitPriceCents: 190 }] }],
++    ["product", { lines: [{ productId: "croissant", qty: 1, unitPriceCents: 180 }] }],
++    [
++      "extra line",
++      {
++        lines: [
++          { productId: "bageta", qty: 1, unitPriceCents: 190 },
++          { productId: "croissant", qty: 1, unitPriceCents: 180 },
++        ],
++      },
++    ],
++  ])("treats the same token with a different %s as a new order", (_, change) => {
++    const store = new InMemoryOrderStore();
++    const token = newFormToken();
++    const first = order({ token });
++    store.reserve(first, limits);
++    const changed = order({ token, email: first.email, ...change });
++    expect(store.findDuplicate(changed)).toBeUndefined();
++    expect(store.reserve(changed, limits)).toBe("ok");
++  });
++
++  it("applies the usual limits to a changed resubmission", () => {
++    const token = newFormToken();
++    const first = order({ token });
++    const store = new InMemoryOrderStore([first, order()]); // the slot is now full (capacity 2)
++    const changed = order({ token, email: first.email, lines: [{ productId: "bageta", qty: 2, unitPriceCents: 190 }] });
++    expect(store.reserve(changed, limits)).toBe("slotFull");
++  });
++
++  it("ignores cancelled orders and orders without a token when looking for duplicates", () => {
++    const token = newFormToken();
++    const store = new InMemoryOrderStore([order({ token, status: "cancelled" }), order()]);
++    expect(store.reserve(order({ token }), limits)).toBe("ok");
++    expect(store.reserve(order(), limits)).toBe("slotFull");
++  });
++
++  it("returns copies, so callers cannot change stored orders", () => {
++    const store = new InMemoryOrderStore();
++    const o = order();
++    store.reserve(o, limits);
++    store.get(o.id)!.status = "cancelled";
++    expect(store.get(o.id)?.status).toBe("open");
++  });
++});
++
++describe("FileOrderStore", () => {
++  let dir: string;
++  beforeEach(() => {
++    dir = mkdtempSync(join(tmpdir(), "kvasok-orders-"));
++  });
++  afterEach(() => {
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("starts empty when the file is missing and creates the directory on first write", () => {
++    const path = join(dir, "nested", "orders.json");
++    const store = new FileOrderStore(path);
++    expect(store.countBySlot()).toEqual({});
++    expect(store.reserve(order(), limits)).toBe("ok");
++    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveLength(1);
++  });
++
++  it("persists across instances, pretty-printed", () => {
++    const path = join(dir, "orders.json");
++    const o = order({ phone: "0900 123 456" });
++    new FileOrderStore(path).reserve(o, limits);
++    new FileOrderStore(path).reserve(order(), limits);
++
++    const reloaded = new FileOrderStore(path);
++    expect(reloaded.countBySlot()).toEqual({ "2026-11-07T09:00": 2 });
++    expect(reloaded.get(o.id)).toEqual(o);
++    expect(reloaded.reserve(order(), limits)).toBe("slotFull");
++    expect(readFileSync(path, "utf8")).toContain('\n  {\n    "id"');
++  });
++
++  it("persists form tokens, still recognises a resubmission after reload, and loads orders without one", () => {
++    const path = join(dir, "orders.json");
++    const token = newFormToken();
++    const withToken = order({ token });
++    const legacy = order();
++    writeFileSync(path, JSON.stringify([legacy], null, 2));
++    new FileOrderStore(path).reserve(withToken, limits);
++
++    const reloaded = new FileOrderStore(path);
++    expect(reloaded.get(legacy.id)).toEqual(legacy);
++    expect(reloaded.reserve(order({ token, email: withToken.email }), limits)).toEqual({
++      status: "duplicate",
++      order: withToken,
++    });
++    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveLength(2);
++  });
++
++  it("persists cancellations", () => {
++    const path = join(dir, "orders.json");
++    const o = order();
++    const store = new FileOrderStore(path);
++    store.reserve(o, limits);
++    store.cancel(o.id);
++    expect(new FileOrderStore(path).get(o.id)?.status).toBe("cancelled");
++  });
++
++  it("frees the slot after a hand edit to cancelled and a reload", () => {
++    const path = join(dir, "orders.json");
++    const store = new FileOrderStore(path);
++    const first = order();
++    store.reserve(first, limits);
++    store.reserve(order(), limits);
++
++    const edited = readFileSync(path, "utf8").replace('"status": "open"', '"status": "cancelled"');
++    writeFileSync(path, edited);
++
++    const reloaded = new FileOrderStore(path);
++    expect(reloaded.get(first.id)?.status).toBe("cancelled");
++    expect(reloaded.countBySlot()).toEqual({ "2026-11-07T09:00": 1 });
++    expect(reloaded.reserve(order(), limits)).toBe("ok");
++  });
++
++  it("throws a clear error for invalid JSON or a bad hand edit", () => {
++    const path = join(dir, "orders.json");
++    writeFileSync(path, "[{");
++    expect(() => new FileOrderStore(path)).toThrow(/orders\.json is not valid JSON/);
++    writeFileSync(path, JSON.stringify([{ ...order(), status: "canceled" }]));
++    expect(() => new FileOrderStore(path)).toThrow(/not a valid list of orders: 0\.status/);
++  });
++});
+diff --git a/test/resubmission.test.ts b/test/resubmission.test.ts
+new file mode 100644
+index 0000000..51ed771
+--- /dev/null
++++ b/test/resubmission.test.ts
+@@ -0,0 +1,452 @@
++import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { createApp } from "../src/app.js";
++import {
++  FileOrderStore,
++  InMemoryOrderStore,
++  isResubmission,
++  newFormToken,
++  type Order,
++  type OrderStore,
++  type ReserveLimits,
++} from "../src/orders.js";
++import { alertText, FakeMailer, orderForm, orderId, postOrder, setup, SLOT, storedOrder, T0 } from "./helpers.js";
++
++const limits: ReserveLimits = { capacity: 8, maxOpenPerEmail: 3, nowSlot: "2026-11-06T09:00" };
++const TOKEN_FIELD = /<input type="hidden" name="token" value="([^"]*)">/;
++
++beforeEach(() => {
++  vi.spyOn(console, "error").mockImplementation(() => {});
++});
++afterEach(() => {
++  vi.restoreAllMocks();
++});
++
++/** A stored order and a candidate that repeats it, for the content rule. */
++function pair(token = newFormToken()) {
++  const stored = storedOrder({
++    token,
++    email: "jan@example.com",
++    lines: [
++      { productId: "bageta", qty: 2, unitPriceCents: 190 },
++      { productId: "croissant", qty: 3, unitPriceCents: 180 },
++    ],
++  });
++  return { stored, candidate: { token, slot: stored.slot, email: stored.email, lines: structuredClone(stored.lines) } };
++}
++
++describe("isResubmission: the content rule", () => {
++  it("matches the same token, slot, email and lines", () => {
++    const { stored, candidate } = pair();
++    expect(isResubmission(stored, candidate)).toBe(true);
++  });
++
++  it("ignores email case and surrounding spaces, but not a different mailbox", () => {
++    const { stored, candidate } = pair();
++    expect(isResubmission(stored, { ...candidate, email: "  JAN@Example.COM " })).toBe(true);
++    expect(isResubmission(stored, { ...candidate, email: "jan2@example.com" })).toBe(false);
++    expect(isResubmission(stored, { ...candidate, email: "ja.n@example.com" })).toBe(false);
++    expect(isResubmission(stored, { ...candidate, email: "jan@example.org" })).toBe(false);
++  });
++
++  it("ignores the order of the lines", () => {
++    const { stored, candidate } = pair();
++    expect(isResubmission(stored, { ...candidate, lines: [...candidate.lines].reverse() })).toBe(true);
++  });
++
++  it("ignores the unit price (prices come from the server, not the form)", () => {
++    const { stored, candidate } = pair();
++    const repriced = candidate.lines.map((l) => ({ ...l, unitPriceCents: 1 }));
++    expect(isResubmission(stored, { ...candidate, lines: repriced })).toBe(true);
++  });
++
++  it.each([
++    ["a changed quantity", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, lines: [{ ...c.lines[0]!, qty: 3 }, c.lines[1]!] })],
++    ["a missing line", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, lines: [c.lines[0]!] })],
++    ["an extra line", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, lines: [...c.lines, { productId: "makovy-zavin", qty: 1, unitPriceCents: 350 }] })],
++    ["a swapped product with the same quantity", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, lines: [{ ...c.lines[0]!, productId: "rascovy-chlieb" }, c.lines[1]!] })],
++    ["a swapped quantity between products", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, lines: [{ ...c.lines[0]!, qty: 3 }, { ...c.lines[1]!, qty: 2 }] })],
++    ["another slot", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, slot: "2026-11-07T09:30" })],
++    ["another day", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, slot: "2026-11-08T09:00" })],
++    ["another token", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, token: newFormToken() })],
++    ["no token", (c: ReturnType<typeof pair>["candidate"]) => ({ ...c, token: undefined })],
++  ])("does not match %s", (_, change) => {
++    const { stored, candidate } = pair();
++    expect(isResubmission(stored, change(candidate))).toBe(false);
++  });
++
++  it("never matches a cancelled order, or a stored order without a token", () => {
++    const { stored, candidate } = pair();
++    expect(isResubmission({ ...stored, status: "cancelled" }, candidate)).toBe(false);
++    expect(isResubmission({ ...stored, token: undefined }, candidate)).toBe(false);
++    expect(isResubmission({ ...stored, token: undefined }, { ...candidate, token: undefined })).toBe(false);
++  });
++});
++
++describe("findDuplicate and reserve agree", () => {
++  type Candidate = Parameters<OrderStore["findDuplicate"]>[0];
++  const variants: [string, (c: Candidate) => Candidate][] = [
++    ["identical", (c) => c],
++    ["email case and spaces", (c) => ({ ...c, email: " JAN@EXAMPLE.COM" })],
++    ["reordered lines", (c) => ({ ...c, lines: [...c.lines].reverse() })],
++    ["other slot", (c) => ({ ...c, slot: "2026-11-07T09:30" })],
++    ["other email", (c) => ({ ...c, email: "x@example.com" })],
++    ["other quantity", (c) => ({ ...c, lines: [{ ...c.lines[0]!, qty: 9 }, c.lines[1]!] })],
++    ["other token", (c) => ({ ...c, token: newFormToken() })],
++    ["no token", (c) => ({ ...c, token: undefined })],
++  ];
++
++  function stores(stored: Order[], dir: string): [string, () => OrderStore][] {
++    let n = 0;
++    return [
++      ["in memory", () => new InMemoryOrderStore(structuredClone(stored))],
++      [
++        "file",
++        () => {
++          const path = join(dir, `orders${n++}.json`);
++          writeFileSync(path, JSON.stringify(stored));
++          return new FileOrderStore(path);
++        },
++      ],
++    ];
++  }
++
++  let dir: string;
++  beforeEach(() => {
++    dir = mkdtempSync(join(tmpdir(), "kvasok-qa4-"));
++  });
++  afterEach(() => {
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it.each([["open"], ["cancelled"]] as const)("for every variant against a %s stored order", (status) => {
++    const { stored, candidate } = pair();
++    const open = { ...stored, status };
++    for (const [storeName, make] of stores([open], dir)) {
++      for (const [name, change] of variants) {
++        const c = change(candidate);
++        const early = make().findDuplicate(c)?.id;
++        const atomic = make().reserve({ ...storedOrder({ ...c, id: "F0000001" }), ...c }, limits);
++        const label = `${storeName} / ${name} / ${status}`;
++        if (early) expect(atomic, label).toMatchObject({ status: "duplicate", order: { id: early } });
++        else expect(typeof atomic, label).toBe("string");
++      }
++    }
++  });
++
++  /** The first findDuplicate call after `blind = true` finds nothing, as if the order appeared a moment later. */
++  class BlindOnceStore extends InMemoryOrderStore {
++    blind = false;
++    override findDuplicate(c: Candidate) {
++      if (this.blind) {
++        this.blind = false;
++        return undefined;
++      }
++      return super.findDuplicate(c);
++    }
++  }
++
++  it("when findDuplicate misses (a race), reserve still stops the duplicate and the app sends no mail", async () => {
++    const orders = new BlindOnceStore();
++    const { app, mailer } = setup({ orders });
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form));
++    mailer.sent = [];
++    orders.blind = true; // the app's early lookup misses; reserve's own check is the real one
++    const again = await postOrder(app, form);
++    expect(again.status).toBe(303);
++    expect(orderId(again)).toBe(id);
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("when reserve is the only line of defence, an altered form with the same token is still a new order", async () => {
++    const orders = new BlindOnceStore();
++    const { app, mailer } = setup({ orders });
++    const form = orderForm();
++    await postOrder(app, form);
++    orders.blind = true;
++    const altered = await postOrder(app, { ...form, qty_croissant: "4" });
++    expect(altered.status).toBe(303);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++    expect(mailer.sent).toHaveLength(4);
++  });
++});
++
++describe("what counts as identical content over HTTP", () => {
++  it("quantity 0, blank, spaces, 000 and omitted all mean the same thing", async () => {
++    const { app, mailer, orders } = setup();
++    const form = orderForm(); // qty_medovnik and the other items are omitted
++    const id = orderId(await postOrder(app, form));
++    mailer.sent = [];
++    for (const zero of ["0", "", " ", " 0 ", "000"]) {
++      const res = await postOrder(app, { ...form, qty_medovnik: zero, qty_bageta: zero });
++      expect(res.status, JSON.stringify(zero)).toBe(303);
++      expect(orderId(res), JSON.stringify(zero)).toBe(id);
++    }
++    expect(mailer.sent).toHaveLength(0);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("the reverse: a first form with explicit zeros is repeated by a form that omits them", async () => {
++    const { app, orders } = setup();
++    const first = orderForm({ qty_medovnik: "0", qty_bageta: "0", qty_makovy_zavin: "0" });
++    const id = orderId(await postOrder(app, first));
++    const { qty_medovnik: _a, qty_bageta: _b, qty_makovy_zavin: _c, ...omitted } = first;
++    expect(orderId(await postOrder(app, omitted))).toBe(id);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("2 and 02 are the same quantity; 2 and 3 are not", async () => {
++    const { app, orders } = setup();
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form));
++    expect(orderId(await postOrder(app, { ...form, qty_croissant: "03" }))).toBe(id);
++    const other = await postOrder(app, { ...form, qty_croissant: "4" });
++    expect(orderId(other)).not.toBe(id);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++  });
++
++  it("adding a zero-quantity item to nothing is not content: but adding a real item is", async () => {
++    const { app } = setup();
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form));
++    expect(orderId(await postOrder(app, { ...form, qty_bageta: "0" }))).toBe(id);
++    expect(orderId(await postOrder(app, { ...form, qty_bageta: "1" }))).not.toBe(id);
++  });
++
++  it("name, phone, note and language are not part of the content", async () => {
++    const { app, orders, mailer } = setup();
++    const form = orderForm();
++    const id = orderId(await postOrder(app, form, "en"));
++    mailer.sent = [];
++    const res = await postOrder(app, { ...form, name: "Someone Else", phone: "0900 1", note: "changed" }, "sk");
++    expect(orderId(res)).toBe(id);
++    expect(orders.get(id)).toMatchObject({ name: "Eva", note: "Sliced, please", lang: "en" });
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("email differing only in case or spaces is the same order, even through the limit and a full slot", async () => {
++    const orders = new InMemoryOrderStore(Array.from({ length: 7 }, () => storedOrder({})));
++    const { app, mailer } = setup({ orders });
++    const form = orderForm({ email: "Jan@Example.com" });
++    const id = orderId(await postOrder(app, form));
++    await postOrder(app, orderForm({ email: "jan@example.com", slot: "2026-11-07T10:00" }));
++    await postOrder(app, orderForm({ email: "jan@example.com", slot: "2026-11-07T10:30" }));
++    mailer.sent = [];
++    for (const email of ["jan@example.com", "JAN@EXAMPLE.COM", "  jan@example.com\t"]) {
++      const res = await postOrder(app, { ...form, email });
++      expect(orderId(res), email).toBe(id);
++    }
++    // A different mailbox with the same token is a new order, and the slot is full.
++    const other = await postOrder(app, { ...form, email: "jan.other@example.com" });
++    expect(other.status).toBe(400);
++    expect(alertText(other.text)).toContain("has just filled up");
++    expect(mailer.sent).toHaveLength(0);
++  });
++
++  it("concurrent identical posts plus one altered post make exactly two orders", async () => {
++    const { app, orders, mailer } = setup();
++    const form = orderForm();
++    const results = await Promise.all([
++      postOrder(app, form),
++      postOrder(app, form),
++      postOrder(app, { ...form, qty_croissant: "4" }),
++      postOrder(app, form),
++    ]);
++    expect(results.map((r) => r.status)).toEqual([303, 303, 303, 303]);
++    expect(new Set(results.map(orderId)).size).toBe(2);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++    expect(mailer.sent).toHaveLength(4);
++  });
++});
++
++describe("the early duplicate lookup versus the rules", () => {
++  const before = new Date("2026-11-06T12:59:00Z");
++  const after = new Date("2026-11-06T13:01:00Z");
++
++  it("lets an identical retry through after the cut-off, but only for an order that is still open", async () => {
++    const orders = new InMemoryOrderStore();
++    const form = orderForm();
++    const id = orderId(await postOrder(setup({ now: before, orders }).app, form));
++    const late = setup({ now: after, orders });
++    expect(orderId(await postOrder(late.app, form))).toBe(id);
++    orders.cancel(id);
++    const res = await postOrder(late.app, form);
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("no longer available");
++    expect(late.mailer.sent).toHaveLength(0);
++  });
++
++  it("an altered retry after the cut-off is slotGone even though the token matches", async () => {
++    const orders = new InMemoryOrderStore();
++    const form = orderForm();
++    await postOrder(setup({ now: before, orders }).app, form);
++    const late = setup({ now: after, orders });
++    const changes: Record<string, string>[] = [{ email: "other@example.com" }, { slot: "2026-11-07T09:30" }, { qty_bageta: "1" }];
++    for (const change of changes) {
++      const res = await postOrder(late.app, { ...form, ...change });
++      expect(res.status, JSON.stringify(change)).toBe(400);
++      expect(alertText(res.text)).toContain("no longer available");
++    }
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("an invalid form is a 400 'invalid' before any duplicate lookup, even with a matching token", async () => {
++    const { app } = setup();
++    const form = orderForm();
++    await postOrder(app, form);
++    const res = await postOrder(app, { ...form, name: "" });
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("Please check the quantities");
++  });
++
++  it("an empty cart with a used token is 'empty', not a redirect", async () => {
++    const { app } = setup();
++    const form = orderForm();
++    await postOrder(app, form);
++    const res = await postOrder(app, { ...form, "qty_kvaskovy-chlieb": "0", qty_croissant: "0" });
++    expect(res.status).toBe(400);
++    expect(alertText(res.text)).toContain("at least one item");
++  });
++
++  it("the other rules are not bypassed by a matching token: a cake order cannot be 'repeated' into a short-notice slot", async () => {
++    const { app, orders } = setup();
++    const form = orderForm();
++    await postOrder(app, form);
++    const cake = await postOrder(app, { ...form, qty_medovnik: "1" }); // same token, new content, Saturday
++    expect(cake.status).toBe(400);
++    expect(alertText(cake.text)).toContain("Cakes need 2 days");
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++});
++
++describe("duplicates across a FileOrderStore restart", () => {
++  let dir: string;
++  let path: string;
++  beforeEach(() => {
++    dir = mkdtempSync(join(tmpdir(), "kvasok-qa5-"));
++    path = join(dir, "orders.json");
++  });
++  afterEach(() => {
++    rmSync(dir, { recursive: true, force: true });
++  });
++  const boot = (now = T0) => {
++    const mailer = new FakeMailer();
++    const orders = new FileOrderStore(path);
++    return { mailer, orders, app: createApp({ mailer, orders, now: () => now }) };
++  };
++
++  it("an identical resubmission after a restart goes to the same order, with no mail and no file write", async () => {
++    const form = orderForm();
++    const id = orderId(await postOrder(boot().app, form));
++    const second = boot();
++    writeFileSync(path, readFileSync(path, "utf8").replace(/\n$/, "\n\n")); // marker: any save would normalise this
++    const marked = readFileSync(path, "utf8");
++    const res = await postOrder(second.app, { ...form, email: "EVA@example.com " });
++    expect(orderId(res)).toBe(id);
++    expect(second.mailer.sent).toHaveLength(0);
++    expect(readFileSync(path, "utf8")).toBe(marked);
++  });
++
++  it("an altered resubmission after a restart is a new order, written next to the old one", async () => {
++    const form = orderForm();
++    const id = orderId(await postOrder(boot().app, form));
++    const second = boot();
++    const res = await postOrder(second.app, { ...form, qty_croissant: "4" });
++    expect(res.status).toBe(303);
++    expect(orderId(res)).not.toBe(id);
++    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveLength(2);
++    expect(second.mailer.sent).toHaveLength(2);
++  });
++
++  it("a cancelled order is not a duplicate after a restart", async () => {
++    const form = orderForm();
++    const first = boot();
++    const id = orderId(await postOrder(first.app, form));
++    first.orders.cancel(id);
++    const second = boot();
++    const res = await postOrder(second.app, form);
++    expect(res.status).toBe(303);
++    expect(orderId(res)).not.toBe(id);
++    expect(second.orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("an identical retry after the cut-off and a restart still lands on the order", async () => {
++    const form = orderForm();
++    const id = orderId(await postOrder(boot(new Date("2026-11-06T12:59:00Z")).app, form));
++    const late = boot(new Date("2026-11-06T13:01:00Z"));
++    expect(orderId(await postOrder(late.app, form))).toBe(id);
++    const altered = await postOrder(late.app, { ...form, qty_croissant: "4" });
++    expect(altered.status).toBe(400);
++  });
++
++  it("a file written before tokens existed never matches a resubmission", async () => {
++    const { token: _t, ...old } = storedOrder({ email: "eva@example.com", lines: [{ productId: "croissant", qty: 3, unitPriceCents: 180 }] });
++    writeFileSync(path, JSON.stringify([old]));
++    const { app, orders } = boot();
++    const res = await postOrder(app, orderForm({ "qty_kvaskovy-chlieb": "0" }));
++    expect(res.status).toBe(303);
++    expect(orderId(res)).not.toBe(old.id);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 2 });
++  });
++});
++
++describe("fresh token after a failed cancel", () => {
++  class StuckStore extends InMemoryOrderStore {
++    override cancel(): never {
++      throw new Error("EROFS");
++    }
++  }
++  const shown = (html: string) => TOKEN_FIELD.exec(html)?.[1];
++
++  it("a failed mail with a working cancel keeps the form's token (the retry is a new order anyway)", async () => {
++    const { app, mailer, orders } = setup();
++    mailer.failOn.add(0);
++    const form = orderForm();
++    const failed = await postOrder(app, form);
++    expect(failed.status).toBe(500);
++    expect(shown(failed.text)).toBe(form.token);
++    const retry = await postOrder(app, { ...form, token: shown(failed.text)! });
++    expect(retry.status).toBe(303);
++    expect(orders.countBySlot()).toEqual({ [SLOT]: 1 });
++  });
++
++  it("each failed attempt hands out a different fresh token and never the old one", async () => {
++    const { app, mailer } = setup({ orders: new StuckStore() });
++    mailer.failOn.add(0).add(1);
++    const form = orderForm();
++    const a = await postOrder(app, form);
++    const retry = await postOrder(app, { ...form, token: shown(a.text)! });
++    expect(retry.status).toBe(500);
++    const tokens = [form.token, shown(a.text), shown(retry.text)];
++    expect(new Set(tokens).size).toBe(3);
++    for (const t of tokens) expect(t).toMatch(/^[0-9a-f]{32}$/);
++  });
++
++  it("keeps the other typed values, escaped, while replacing only the token", async () => {
++    const { app, mailer } = setup({ orders: new StuckStore() });
++    mailer.failOn.add(0);
++    const res = await postOrder(app, orderForm({ name: "<b>Eva</b>", phone: "0900 1" }));
++    expect(res.status).toBe(500);
++    expect(res.text).toContain("&lt;b&gt;Eva&lt;/b&gt;");
++    expect(res.text).toContain('value="0900 1"');
++    expect(res.text).toContain(`<option value="${SLOT}"`);
++  });
++
++  it("known limitation: re-posting the ORIGINAL form (browser reload) after a stuck cancel lands on the unsent order", async () => {
++    const orders = new StuckStore();
++    const { app, mailer } = setup({ orders });
++    mailer.failOn.add(0);
++    const form = orderForm();
++    expect((await postOrder(app, form)).status).toBe(500);
++    const reload = await postOrder(app, form);
++    expect(reload.status).toBe(303);
++    const page = await request(app).get(reload.headers.location!.replace("#order", ""));
++    expect(page.text).toContain("Your order number");
++    expect(mailer.sent).toHaveLength(0); // the shop never received this order
++  });
++});
+diff --git a/test/slots-edge.test.ts b/test/slots-edge.test.ts
+new file mode 100644
+index 0000000..fc0d2e5
+--- /dev/null
++++ b/test/slots-edge.test.ts
+@@ -0,0 +1,213 @@
++process.env.TZ = "Pacific/Auckland";
++
++import { describe, expect, it } from "vitest";
++import { cutoffFor, generateSlots, hoursOn, localNow, localSlotId } from "../src/slots.js";
++
++function dates(now: Date): string[] {
++  return [...new Set(generateSlots(now).map((s) => s.date))];
++}
++
++function slotsOn(now: Date, date: string): string[] {
++  return generateSlots(now)
++    .filter((s) => s.date === date)
++    .map((s) => s.time);
++}
++
++describe("process time zone", () => {
++  it("really runs in Auckland, so nothing below depends on the server zone", () => {
++    expect(new Date("2026-11-06T08:00:00Z").getHours()).toBe(21);
++  });
++});
++
++describe("local midnight versus UTC", () => {
++  it("winter: 22:59:59Z is still Friday 23:59 in Bratislava, 23:00Z is already Saturday 00:00", () => {
++    expect(localNow(new Date("2026-11-06T22:59:59Z"))).toEqual({ date: "2026-11-06", minutes: 23 * 60 + 59 });
++    expect(localNow(new Date("2026-11-06T23:00:00Z"))).toEqual({ date: "2026-11-07", minutes: 0 });
++  });
++
++  it("summer: 21:59:59Z is still 23:59, 22:00Z is already the next day", () => {
++    expect(localNow(new Date("2026-07-10T21:59:59Z"))).toEqual({ date: "2026-07-10", minutes: 23 * 60 + 59 });
++    expect(localNow(new Date("2026-07-10T22:00:00Z"))).toEqual({ date: "2026-07-11", minutes: 0 });
++  });
++
++  it("never reports hour 24 at local midnight", () => {
++    expect(localNow(new Date("2026-07-10T22:00:00Z")).minutes).toBe(0);
++  });
++
++  it("Friday 23:59 and Saturday 00:00 local both start at Sunday: Saturday's cut-off passed, then Saturday is same-day", () => {
++    expect(dates(new Date("2026-11-06T22:59:59Z"))[0]).toBe("2026-11-08");
++    expect(dates(new Date("2026-11-06T23:00:00Z"))[0]).toBe("2026-11-08");
++  });
++
++  it("the horizon moves with the local date, not the UTC date", () => {
++    expect(dates(new Date("2026-11-06T22:59:59Z")).at(-1)).toBe("2026-11-20");
++    expect(dates(new Date("2026-11-06T23:00:00Z")).at(-1)).toBe("2026-11-21");
++  });
++
++  it("Sunday night UTC is Monday locally, when Tuesday's cut-off (Sunday 12:00) has long passed", () => {
++    const now = new Date("2026-11-08T23:30:00Z");
++    expect(localNow(now)).toEqual({ date: "2026-11-09", minutes: 30 });
++    expect(dates(now)[0]).toBe("2026-11-11");
++  });
++});
++
++describe("daylight saving time", () => {
++  it("localSlotId stays on wall time across the spring jump (01:00Z on 2027-03-28)", () => {
++    expect(localSlotId(localNow(new Date("2027-03-28T00:59:00Z")))).toBe("2027-03-28T01:59");
++    expect(localSlotId(localNow(new Date("2027-03-28T01:00:00Z")))).toBe("2027-03-28T03:00");
++  });
++
++  it("localSlotId handles the repeated autumn hour (01:00Z on 2026-10-25)", () => {
++    expect(localSlotId(localNow(new Date("2026-10-25T00:30:00Z")))).toBe("2026-10-25T02:30");
++    expect(localSlotId(localNow(new Date("2026-10-25T01:30:00Z")))).toBe("2026-10-25T02:30");
++    expect(localSlotId(localNow(new Date("2026-10-25T02:00:00Z")))).toBe("2026-10-25T03:00");
++  });
++
++  it("Saturday 14:00 cut-off for the spring-change Sunday is 13:00Z (still winter time)", () => {
++    expect(slotsOn(new Date("2027-03-27T12:59:59Z"), "2027-03-28")).toHaveLength(10);
++    expect(slotsOn(new Date("2027-03-27T13:00:00Z"), "2027-03-28")).toEqual([]);
++  });
++
++  it("Saturday 14:00 cut-off for the autumn-change Sunday is 12:00Z (still summer time)", () => {
++    expect(slotsOn(new Date("2026-10-24T11:59:59Z"), "2026-10-25")).toHaveLength(10);
++    expect(slotsOn(new Date("2026-10-24T12:00:00Z"), "2026-10-25")).toEqual([]);
++  });
++
++  it("Tuesday after the spring change closes at Sunday 12:00 CEST = 10:00Z", () => {
++    expect(slotsOn(new Date("2027-03-28T09:59:59Z"), "2027-03-30")).toHaveLength(22);
++    expect(slotsOn(new Date("2027-03-28T10:00:00Z"), "2027-03-30")).toEqual([]);
++  });
++
++  it("Tuesday after the autumn change closes at Sunday 12:00 CET = 11:00Z", () => {
++    expect(slotsOn(new Date("2026-10-25T10:59:59Z"), "2026-10-27")).toHaveLength(22);
++    expect(slotsOn(new Date("2026-10-25T11:00:00Z"), "2026-10-27")).toEqual([]);
++  });
++
++  it("a horizon that crosses the spring change still counts whole calendar days", () => {
++    const now = new Date("2027-03-14T08:00:00Z");
++    expect(dates(now)[0]).toBe("2027-03-16");
++    expect(dates(now).at(-1)).toBe("2027-03-28");
++    expect(slotsOn(now, "2027-03-28")).toHaveLength(10);
++  });
++
++  it("a horizon that crosses the autumn change still counts whole calendar days", () => {
++    const now = new Date("2026-10-18T08:00:00Z");
++    expect(dates(now).at(-1)).toBe("2026-11-01");
++    expect(slotsOn(now, "2026-10-25")).toHaveLength(10);
++    expect(slotsOn(now, "2026-10-27")).toHaveLength(22);
++  });
++});
++
++describe("cut-off to the second", () => {
++  // Friday 2026-11-06 14:00 in Bratislava (CET) is 13:00:00Z.
++  const sat = (iso: string) => slotsOn(new Date(iso), "2026-11-07");
++
++  it("is open at 13:59:59 and 13:59:59.999 local", () => {
++    expect(sat("2026-11-06T12:59:59Z")).toHaveLength(22);
++    expect(sat("2026-11-06T12:59:59.999Z")).toHaveLength(22);
++  });
++
++  it("is closed at exactly 14:00:00 and a second later", () => {
++    expect(sat("2026-11-06T13:00:00Z")).toEqual([]);
++    expect(sat("2026-11-06T13:00:01Z")).toEqual([]);
++  });
++
++  it("closes only the next day's slots, later days stay open", () => {
++    expect(slotsOn(new Date("2026-11-06T13:00:00Z"), "2026-11-08")).toHaveLength(10);
++  });
++
++  it("closed Sunday slots reopen nothing: after Saturday 14:00 the first date is Sunday only until Sunday 14:00", () => {
++    // Saturday 2026-11-07 13:59 local: Sunday still open; 14:00 local: Sunday closed, Tuesday on.
++    expect(dates(new Date("2026-11-07T12:59:00Z"))[0]).toBe("2026-11-08");
++    expect(dates(new Date("2026-11-07T13:00:00Z"))[0]).toBe("2026-11-10");
++  });
++});
++
++describe("cut-off around closed days", () => {
++  it("on a Monday, Tuesday is gone (its cut-off was Sunday 12:00) and Wednesday is the first date", () => {
++    const monday = new Date("2026-11-09T09:00:00Z");
++    expect(dates(monday)[0]).toBe("2026-11-11");
++    expect(slotsOn(monday, "2026-11-10")).toEqual([]);
++  });
++
++  it("Wednesday closes Tuesday 14:00", () => {
++    expect(slotsOn(new Date("2026-11-10T12:59:59Z"), "2026-11-11")).toHaveLength(22);
++    expect(slotsOn(new Date("2026-11-10T13:00:00Z"), "2026-11-11")).toEqual([]);
++  });
++
++  it("on Christmas Day 2026 only Tuesday 29 December onwards is offered after the closed block", () => {
++    const christmas = new Date("2026-12-25T09:00:00Z");
++    const d = dates(christmas);
++    expect(d).not.toContain("2026-12-26");
++    expect(d).not.toContain("2026-12-27"); // cut-off was Thursday 24 December 14:00
++    expect(d).not.toContain("2026-12-28"); // Monday
++    expect(d[0]).toBe("2026-12-29"); // cut-off Sunday 27 December 12:00, still ahead
++  });
++
++  it("Sunday 27 December opens until Thursday 24 December 14:00 local (13:00Z)", () => {
++    expect(slotsOn(new Date("2026-12-24T12:59:59Z"), "2026-12-27")).toHaveLength(10);
++    expect(slotsOn(new Date("2026-12-24T13:00:00Z"), "2026-12-27")).toEqual([]);
++  });
++
++  it("Tuesday 29 December closes Sunday 27 December 12:00 (11:00Z), not Monday's non-existent 14:00", () => {
++    expect(slotsOn(new Date("2026-12-27T10:59:59Z"), "2026-12-29")).toHaveLength(22);
++    expect(slotsOn(new Date("2026-12-27T11:00:00Z"), "2026-12-29")).toEqual([]);
++  });
++
++  it("Thursday 7 January closes Tuesday 5 January 14:00 because the 6th is closed", () => {
++    expect(cutoffFor("2027-01-07")).toEqual({ date: "2027-01-05", minutes: 14 * 60 });
++    expect(slotsOn(new Date("2027-01-05T12:59:59Z"), "2027-01-07")).toHaveLength(22);
++    expect(slotsOn(new Date("2027-01-05T13:00:00Z"), "2027-01-07")).toEqual([]);
++  });
++
++  it("Tuesday 5 January closes Sunday 3 January 12:00", () => {
++    expect(cutoffFor("2027-01-05")).toEqual({ date: "2027-01-03", minutes: 12 * 60 });
++  });
++
++  it("Saturday 2 January closes Thursday 31 December 14:00 because 1 January is closed", () => {
++    expect(cutoffFor("2027-01-02")).toEqual({ date: "2026-12-31", minutes: 14 * 60 });
++    expect(slotsOn(new Date("2026-12-31T12:59:59Z"), "2027-01-02")).toHaveLength(22);
++    expect(slotsOn(new Date("2026-12-31T13:00:00Z"), "2027-01-02")).toEqual([]);
++  });
++
++  it("closed dates have no hours even on a normally open weekday", () => {
++    expect(hoursOn("2026-12-25")).toBeNull(); // Friday
++    expect(hoursOn("2026-12-26")).toBeNull(); // Saturday
++    expect(hoursOn("2027-01-06")).toBeNull(); // Wednesday
++    expect(hoursOn("2026-12-24")).toEqual({ open: "07:00", close: "18:00" });
++    expect(hoursOn("2026-12-27")).toEqual({ open: "07:00", close: "12:00" });
++    expect(hoursOn("2026-12-28")).toBeNull(); // Monday
++  });
++});
++
++describe("horizon", () => {
++  it("includes today + 14 when it is a Sunday and nothing after it", () => {
++    const now = new Date("2026-11-01T08:00:00Z"); // Sunday 09:00
++    expect(dates(now).at(-1)).toBe("2026-11-15");
++    expect(slotsOn(now, "2026-11-15")).toHaveLength(10);
++    expect(slotsOn(now, "2026-11-16")).toEqual([]);
++  });
++
++  it("the first slot of a day is 07:00 and the last starts 30 minutes before closing", () => {
++    const now = new Date("2026-11-06T08:00:00Z");
++    for (const [date, last] of [
++      ["2026-11-07", "17:30"],
++      ["2026-11-08", "11:30"],
++      ["2026-11-10", "17:30"],
++    ] as const) {
++      const times = slotsOn(now, date);
++      expect(times[0]).toBe("07:00");
++      expect(times.at(-1)).toBe(last);
++    }
++  });
++
++  it("never offers a slot on a closed day or at/after closing", () => {
++    for (const iso of ["2026-12-14T08:00:00Z", "2026-12-21T08:00:00Z", "2026-12-28T08:00:00Z", "2027-01-04T08:00:00Z"]) {
++      for (const s of generateSlots(new Date(iso))) {
++        const hours = hoursOn(s.date);
++        expect(hours, s.id).not.toBeNull();
++        expect(s.time >= hours!.open && s.time < hours!.close, s.id).toBe(true);
++      }
++    }
++  });
++});
+diff --git a/test/slots.test.ts b/test/slots.test.ts
+new file mode 100644
+index 0000000..67f2439
+--- /dev/null
++++ b/test/slots.test.ts
+@@ -0,0 +1,115 @@
++process.env.TZ = "America/New_York";
++
++import { describe, expect, it } from "vitest";
++import { addDays, cutoffFor, formatSlot, generateSlots, localNow } from "../src/slots.js";
++
++/** Friday 2026-11-06 09:00 in Bratislava. */
++const T0 = new Date("2026-11-06T08:00:00Z");
++
++function times(now: Date, date: string): string[] {
++  return generateSlots(now)
++    .filter((s) => s.date === date)
++    .map((s) => s.time);
++}
++
++describe("process time zone", () => {
++  it("really runs in New York, so nothing below depends on the server zone", () => {
++    expect(new Date("2026-11-06T08:00:00Z").getHours()).toBe(3);
++  });
++});
++
++describe("localNow", () => {
++  it("converts to Bratislava wall time", () => {
++    expect(localNow(T0)).toEqual({ date: "2026-11-06", minutes: 9 * 60 });
++    expect(localNow(new Date("2026-11-06T23:30:00Z"))).toEqual({ date: "2026-11-07", minutes: 30 });
++  });
++
++  it("follows the spring DST jump", () => {
++    expect(localNow(new Date("2027-03-28T01:30:00Z"))).toEqual({ date: "2027-03-28", minutes: 210 });
++  });
++});
++
++describe("addDays", () => {
++  it("crosses months, years and DST changes by calendar day", () => {
++    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
++    expect(addDays("2027-03-27", 1)).toBe("2027-03-28");
++    expect(addDays("2027-03-28", 1)).toBe("2027-03-29");
++    expect(addDays("2027-10-31", -1)).toBe("2027-10-30");
++  });
++});
++
++describe("generateSlots", () => {
++  const all = Array.from({ length: 22 }, (_, i) => `${String(7 + Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
++
++  it("offers no same-day slots", () => {
++    expect(times(T0, "2026-11-06")).toEqual([]);
++  });
++
++  it("offers tomorrow 07:00–17:30 before Friday's 14:00 cut-off", () => {
++    expect(times(T0, "2026-11-07")).toEqual(all);
++  });
++
++  it("offers Sunday 07:00–11:30, nothing on Monday, Tuesday again", () => {
++    expect(times(T0, "2026-11-08")).toEqual(all.slice(0, 10));
++    expect(times(T0, "2026-11-09")).toEqual([]);
++    expect(times(T0, "2026-11-10")).toEqual(all);
++  });
++
++  it("runs through today + 14 days", () => {
++    const dates = generateSlots(T0).map((s) => s.date);
++    expect(dates.at(-1)).toBe("2026-11-20");
++    expect(dates).not.toContain("2026-11-21");
++  });
++
++  it("uses slot ids in local wall time", () => {
++    expect(generateSlots(T0)[0]).toEqual({ id: "2026-11-07T07:00", date: "2026-11-07", time: "07:00" });
++  });
++
++  it("closes Saturday after Friday 14:00", () => {
++    const at = new Date("2026-11-06T13:30:00Z");
++    expect(times(at, "2026-11-07")).toEqual([]);
++    expect(times(at, "2026-11-08")).toHaveLength(10);
++  });
++
++  it("closes Tuesday at Sunday's 12:00 closing time", () => {
++    expect(times(new Date("2026-11-08T10:59:00Z"), "2026-11-10")).toHaveLength(22);
++    expect(times(new Date("2026-11-08T11:00:00Z"), "2026-11-10")).toEqual([]);
++  });
++
++  it("skips closed dates", () => {
++    const dates = new Set([
++      ...generateSlots(new Date("2026-12-14T08:00:00Z")).map((s) => s.date),
++      ...generateSlots(new Date("2026-12-28T08:00:00Z")).map((s) => s.date),
++    ]);
++    expect(dates).toContain("2026-12-24");
++    expect(dates).toContain("2026-12-27");
++    for (const closed of ["2026-12-25", "2026-12-26", "2027-01-01", "2027-01-06"]) expect(dates).not.toContain(closed);
++  });
++
++  it("generates exactly 10 slots on the DST-change Sundays", () => {
++    expect(times(new Date("2027-03-25T08:00:00Z"), "2027-03-28")).toHaveLength(10);
++    expect(times(new Date("2027-10-28T08:00:00Z"), "2027-10-31")).toHaveLength(10);
++  });
++});
++
++describe("cutoffFor", () => {
++  it("is 14:00 the day before on a normal weekday", () => {
++    expect(cutoffFor("2026-11-11")).toEqual({ date: "2026-11-10", minutes: 14 * 60 });
++  });
++
++  it("is Sunday's closing time for Tuesday", () => {
++    expect(cutoffFor("2026-11-10")).toEqual({ date: "2026-11-08", minutes: 12 * 60 });
++  });
++
++  it("skips closed dates", () => {
++    expect(cutoffFor("2026-12-27")).toEqual({ date: "2026-12-24", minutes: 14 * 60 });
++    expect(cutoffFor("2027-01-02")).toEqual({ date: "2026-12-31", minutes: 14 * 60 });
++  });
++});
++
++describe("formatSlot", () => {
++  it("formats in both languages", () => {
++    expect(formatSlot("2026-11-07T09:00", "en")).toBe("Saturday 7 November, 09:00");
++    expect(formatSlot("2026-11-07T09:00", "sk")).toBe("sobota 7. novembra, 09:00");
++  });
++});

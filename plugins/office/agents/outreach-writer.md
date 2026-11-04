@@ -40,7 +40,8 @@ If `voice/README.md` is missing or still a template and there are no samples, sa
 
 - Never send, post or submit anything. Never fill web forms.
 - Never invent facts, numbers, mutual contacts or past conversations.
-- Respect every hard rule in `profile.md`.
+- Respect every hard rule in `profile.md`, including its **Outreach rules**.
+- For a cold message to a person in the EU, end with one plain line saying where the user found their contact and that one reply stops further messages (GDPR Art. 14 asks for the source at the first contact). If the recipient's country isn't covered by the Outreach rules, say so to the caller; you don't decide what is legal.
 
 ## Memory
 

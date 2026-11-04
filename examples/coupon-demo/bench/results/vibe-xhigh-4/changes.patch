@@ -1,0 +1,117 @@
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..a13a9ef 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -28,3 +28,71 @@ describe("checkout", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
+ });
++
++describe("checkout with multiple coupons", () => {
++  it("treats an empty list like no coupon", () => {
++    expect(checkout(cart, [])).toEqual(checkout(cart));
++  });
++
++  it("treats a one-element list like the single string", () => {
++    expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++  });
++
++  it("stacks percent and fixed coupons against the subtotal", () => {
++    // 10% of 4400 = 440, plus 500 fixed = 940; tax 20% of 3460 = 692
++    expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 940,
++      taxCents: 692,
++      totalCents: 4152,
++    });
++  });
++
++  it("gives the same result regardless of code order", () => {
++    expect(checkout(cart, ["SAVE5", "WELCOME10", "GIFT25"])).toEqual(
++      checkout(cart, ["GIFT25", "WELCOME10", "SAVE5"]),
++    );
++  });
++
++  it("checks each coupon's minimum against the subtotal, not the running total", () => {
++    // GIFT25 alone would leave 1900, below SAVE5's 3000 minimum; SAVE5 still applies.
++    expect(checkout(cart, ["GIFT25", "SAVE5"]).discountCents).toBe(3000);
++  });
++
++  it("still skips a coupon whose minimum the subtotal doesn't meet", () => {
++    const small = [{ sku: "mug", priceCents: 1200, qty: 1 }];
++    expect(checkout(small, ["WELCOME10", "SAVE5"]).discountCents).toBe(120);
++  });
++
++  it("never discounts more than the subtotal", () => {
++    const small = [{ sku: "mug", priceCents: 1200, qty: 2 }];
++    expect(checkout(small, ["GIFT25", "WELCOME10"])).toEqual({
++      subtotalCents: 2400,
++      discountCents: 2400,
++      taxCents: 0,
++      totalCents: 0,
++    });
++  });
++
++  it("rejects a code given twice", () => {
++    expect(() => checkout(cart, ["WELCOME10", "WELCOME10"])).toThrow(
++      "Duplicate coupon: WELCOME10",
++    );
++  });
++
++  it("rejects the whole checkout if any code is unknown", () => {
++    expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon: NOPE");
++  });
++
++  it("rejects the whole checkout if any code is expired", () => {
++    const now = new Date("2025-10-01");
++    expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], now)).toThrow(
++      "Coupon expired: SUMMER15",
++    );
++  });
++
++  it("accepts a coupon before its expiry date", () => {
++    const now = new Date("2025-08-01");
++    expect(checkout(cart, ["WELCOME10", "SUMMER15"], now).discountCents).toBe(1100);
++  });
++});
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..f7934de 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -46,9 +46,34 @@ export function discountFor(coupon: Coupon, amountCents: number): number {
+   return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Normalizes the `codes` argument to a list. Empty strings mean "no coupon",
++ * matching the original single-code behaviour. A code given more than once is
++ * rejected rather than silently applied twice.
++ */
++function normalizeCodes(codes: string | string[] | undefined): string[] {
++  const list = (typeof codes === "string" ? [codes] : codes ?? []).filter((code) => code !== "");
++  const seen = new Set<string>();
++  for (const code of list) {
++    if (seen.has(code)) throw new Error(`Duplicate coupon: ${code}`);
++    seen.add(code);
++  }
++  return list;
++}
++
++/**
++ * Coupons stack: each one is evaluated against the cart subtotal (both its
++ * minimum-spend check and, for percent coupons, its base), so the order of
++ * codes does not matter. The combined discount never exceeds the subtotal.
++ */
++export function checkout(items: Item[], codes?: string | string[], now: Date = new Date()): Receipt {
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
++  const coupons = normalizeCodes(codes).map((code) => findCoupon(code, now));
++  const combinedDiscount = coupons.reduce(
++    (sum, coupon) => sum + discountFor(coupon, subtotalCents),
++    0,
++  );
++  const discountCents = Math.min(combinedDiscount, subtotalCents);
+   const afterDiscount = subtotalCents - discountCents;
+   const taxCents = Math.round(afterDiscount * TAX_RATE);
+   return {

@@ -1,0 +1,106 @@
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..bb8d56d 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -27,4 +27,48 @@ describe("checkout", () => {
+   it("rejects an unknown coupon", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
++
++  describe("multiple codes", () => {
++    it("accepts an empty array", () => {
++      expect(checkout(cart, []).discountCents).toBe(0);
++    });
++
++    it("treats a one-element array like a single string", () => {
++      expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++    });
++
++    it("stacks percent then fixed, regardless of input order", () => {
++      // 4400 - 10% = 3960, then - 500 = 3460
++      const a = checkout(cart, ["WELCOME10", "SAVE5"]);
++      const b = checkout(cart, ["SAVE5", "WELCOME10"]);
++      expect(a.discountCents).toBe(940);
++      expect(b).toEqual(a);
++      expect(a.totalCents).toBe(3460 + 692);
++    });
++
++    it("checks minimums against the original subtotal", () => {
++      // 3200 qualifies for SAVE5 even though 10% off drops it to 2880
++      const small = [{ sku: "x", priceCents: 3200, qty: 1 }];
++      expect(checkout(small, ["WELCOME10", "SAVE5"]).discountCents).toBe(820);
++    });
++
++    it("never discounts below zero", () => {
++      const r = checkout(cart, ["GIFT25", "SAVE5", "WELCOME10"]);
++      // 4400 -10% = 3960, -2500 = 1460, -500 = 960
++      expect(r.discountCents).toBe(3440);
++      const tiny = [{ sku: "x", priceCents: 1000, qty: 1 }];
++      expect(checkout(tiny, ["GIFT25"]).totalCents).toBe(0);
++    });
++
++    it("rejects duplicate codes", () => {
++      expect(() => checkout(cart, ["SAVE5", "SAVE5"])).toThrow("Duplicate coupon");
++    });
++
++    it("rejects the whole checkout if any code is invalid", () => {
++      expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon");
++      expect(() =>
++        checkout(cart, ["WELCOME10", "SUMMER15"], new Date("2026-01-01")),
++      ).toThrow("Coupon expired");
++    });
++  });
+ });
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..4970e2d 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -46,9 +46,46 @@ export function discountFor(coupon: Coupon, amountCents: number): number {
+   return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Stacking rules for multiple codes:
++ * - Every code is validated up front (unknown/expired throws); duplicates throw.
++ * - Minimum-subtotal checks use the original subtotal.
++ * - Percent coupons apply first, then fixed ones, each on the remaining amount,
++ *   so the result doesn't depend on the order codes were entered.
++ * - The total discount never exceeds the subtotal.
++ */
++export function checkout(
++  items: Item[],
++  codes?: string | string[],
++  now: Date = new Date(),
++): Receipt {
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
++  const list = (Array.isArray(codes) ? codes : [codes]).filter(
++    (c): c is string => !!c,
++  );
++
++  const seen = new Set<string>();
++  for (const code of list) {
++    if (seen.has(code)) throw new Error(`Duplicate coupon: ${code}`);
++    seen.add(code);
++  }
++
++  const coupons = list
++    .map((code) => findCoupon(code, now))
++    .filter((c) => !c.minSubtotalCents || subtotalCents >= c.minSubtotalCents);
++  const ordered = [
++    ...coupons.filter((c) => c.kind === "percent"),
++    ...coupons.filter((c) => c.kind === "fixed"),
++  ];
++
++  let remaining = subtotalCents;
++  for (const coupon of ordered) {
++    // Minimum already checked against the subtotal above; don't re-check it
++    // against the post-discount remainder.
++    const discount = discountFor({ ...coupon, minSubtotalCents: undefined }, remaining);
++    remaining -= Math.min(remaining, discount);
++  }
++  const discountCents = subtotalCents - remaining;
+   const afterDiscount = subtotalCents - discountCents;
+   const taxCents = Math.round(afterDiscount * TAX_RATE);
+   return {

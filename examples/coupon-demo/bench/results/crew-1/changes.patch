@@ -1,0 +1,221 @@
+diff --git a/.claude/agent-memory-local/crew-web-coder/MEMORY.md b/.claude/agent-memory-local/crew-web-coder/MEMORY.md
+new file mode 100644
+index 0000000..2ee3d43
+--- /dev/null
++++ b/.claude/agent-memory-local/crew-web-coder/MEMORY.md
+@@ -0,0 +1 @@
++- [Repo commands](repo_commands.md) — npm typecheck/test work; ad-hoc node/python scripts are denied, use Edit
+diff --git a/.claude/agent-memory-local/crew-web-coder/repo_commands.md b/.claude/agent-memory-local/crew-web-coder/repo_commands.md
+new file mode 100644
+index 0000000..8a3c784
+--- /dev/null
++++ b/.claude/agent-memory-local/crew-web-coder/repo_commands.md
+@@ -0,0 +1,9 @@
++---
++name: repo-commands
++description: Working commands and sandbox limits for the coupon-demo repo (npm, vitest, tsc)
++metadata:
++  type: project
++---
++
++- Plain npm repo (no pnpm/CLAUDE.md). `npm run typecheck` (tsc --noEmit) and `npm test` (vitest run) work.
++- Bash permission denies ad-hoc script execution (python file edits, `node -e` scratch scripts). Use the Edit tool for edits and check values by hand or through the test suite.
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..56ffe4c 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -27,4 +27,126 @@ describe("checkout", () => {
+   it("rejects an unknown coupon", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
++
++  const single = (priceCents: number) => [{ sku: "x", priceCents, qty: 1 }];
++  const aug = new Date("2025-08-01");
++  const oct = new Date("2025-10-01");
++  const noCoupon = { subtotalCents: 4400, discountCents: 0, taxCents: 880, totalCents: 5280 };
++
++  describe("multiple coupons", () => {
++    it("treats a single-element array like a string", () => {
++      expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++    });
++
++    it.each([
++      ["empty array", [] as string[]],
++      ["empty string", ""],
++      ["array with empty string", [""]],
++    ])("treats %s as no coupon", (_name, codes) => {
++      expect(checkout(cart, codes)).toEqual(noCoupon);
++    });
++
++    it("ignores empty strings within arrays", () => {
++      expect(checkout(cart, ["", "WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++    });
++
++    it("applies percent before fixed, regardless of input order", () => {
++      const expected = { subtotalCents: 4400, discountCents: 940, taxCents: 692, totalCents: 4152 };
++      expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual(expected);
++      expect(checkout(cart, ["SAVE5", "WELCOME10"])).toEqual(expected);
++    });
++
++    it("stacks two percent coupons when the second is still valid", () => {
++      const r = checkout(cart, ["WELCOME10", "SUMMER15"], aug);
++      expect(r.discountCents).toBe(1034);
++      expect(r.taxCents).toBe(673);
++      expect(r.totalCents).toBe(4039);
++    });
++
++    it("orders percent coupons by catalog order and compounds them", () => {
++      for (const codes of [
++        ["WELCOME10", "SUMMER15"],
++        ["SUMMER15", "WELCOME10"],
++      ]) {
++        const r = checkout(single(1005), codes, aug);
++        expect(r.discountCents).toBe(237);
++        expect(r.taxCents).toBe(154);
++        expect(r.totalCents).toBe(922);
++      }
++    });
++
++    it("checks minSubtotal against the original subtotal", () => {
++      const r = checkout(single(3200), ["WELCOME10", "SAVE5"]);
++      expect(r.discountCents).toBe(820);
++      expect(r.taxCents).toBe(476);
++      expect(r.totalCents).toBe(2856);
++    });
++
++    it("gives no discount when below a fixed coupon minimum", () => {
++      expect(checkout(single(2000), ["SAVE5"]).discountCents).toBe(0);
++    });
++
++    it("clamps a fixed discount to the remaining amount", () => {
++      expect(checkout(single(1000), "GIFT25")).toEqual({
++        subtotalCents: 1000,
++        discountCents: 1000,
++        taxCents: 0,
++        totalCents: 0,
++      });
++      const r = checkout(single(2600), ["GIFT25", "WELCOME10"]);
++      expect(r.discountCents).toBe(2600);
++      expect(r.taxCents).toBe(0);
++      expect(r.totalCents).toBe(0);
++    });
++
++    it("rounds percent discounts and returns integers", () => {
++      const r = checkout(single(1234), "WELCOME10");
++      expect(r.discountCents).toBe(123);
++      expect(r.taxCents).toBe(222);
++      expect(r.totalCents).toBe(1333);
++      expect(checkout(single(1235), "WELCOME10").discountCents).toBe(124);
++      for (const price of [1234, 1235, 1005]) {
++        const rec = checkout(single(price), ["WELCOME10", "SUMMER15"], aug);
++        for (const v of Object.values(rec)) expect(Number.isInteger(v)).toBe(true);
++      }
++    });
++
++    it("applies a single non-expired SUMMER15", () => {
++      expect(checkout(cart, "SUMMER15", aug).discountCents).toBe(660);
++    });
++
++    it("rejects duplicate coupons", () => {
++      expect(() => checkout(cart, ["SAVE5", "SAVE5"])).toThrow("Duplicate coupon: SAVE5");
++    });
++
++    it("reports the first problem in input order (duplicate before a later unknown)", () => {
++      expect(() => checkout(cart, ["SAVE5", "SAVE5", "NOPE"])).toThrow("Duplicate coupon: SAVE5");
++    });
++
++    it("rejects an unknown coupon among valid ones", () => {
++      expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon: NOPE");
++    });
++
++    it("rejects an expired coupon among valid ones", () => {
++      expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], oct)).toThrow(
++        "Coupon expired: SUMMER15",
++      );
++    });
++
++    it("reports the first invalid code in input order", () => {
++      expect(() => checkout(cart, ["NOPE", "SUMMER15"], oct)).toThrow("Unknown coupon: NOPE");
++    });
++
++    it("reports expired before duplicate for a repeated expired code", () => {
++      expect(() => checkout(cart, ["SUMMER15", "SUMMER15"], oct)).toThrow(
++        "Coupon expired: SUMMER15",
++      );
++    });
++
++    it("accepts a readonly array without mutating it", () => {
++      const codes: readonly string[] = Object.freeze(["SAVE5", "WELCOME10"]);
++      expect(checkout(cart, codes).discountCents).toBe(940);
++      expect(codes).toEqual(["SAVE5", "WELCOME10"]);
++    });
++  });
+ });
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..db7420f 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -41,15 +41,57 @@ export function findCoupon(code: string, now: Date = new Date()): Coupon {
+   return coupon;
+ }
+ 
+-export function discountFor(coupon: Coupon, amountCents: number): number {
+-  if (coupon.minSubtotalCents && amountCents < coupon.minSubtotalCents) return 0;
+-  return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
++export function discountFor(
++  coupon: Coupon,
++  amountCents: number,
++  eligibilityCents: number = amountCents,
++): number {
++  if (coupon.minSubtotalCents && eligibilityCents < coupon.minSubtotalCents) return 0;
++  return coupon.kind === "percent" ? Math.round((amountCents * coupon.value) / 100) : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Prices a cart with zero or more coupon codes.
++ *
++ * - `codes` may be a single code or a list; empty strings are ignored. Matching is exact
++ *   (case-sensitive, no trimming). The input array is never mutated.
++ * - All codes are validated before any math. Each code, in input order, is checked for
++ *   unknown/expired (existing errors) and then for repetition (`Duplicate coupon: <code>`);
++ *   the first problem throws. No partial receipt is produced.
++ * - Coupons apply percent-first, then fixed; within each kind in `COUPONS` catalog order, so
++ *   the result does not depend on input order.
++ * - Each coupon discounts the running amount (capped so it never drops below zero), while
++ *   minimum-subtotal checks always use the original subtotal. Percent discounts are rounded.
++ */
++export function checkout(
++  items: Item[],
++  codes?: string | readonly string[],
++  now: Date = new Date(),
++): Receipt {
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
+-  const afterDiscount = subtotalCents - discountCents;
++  const requested = (typeof codes === "string" ? [codes] : codes ?? []).filter((c) => c !== "");
++
++  const seen = new Set<string>();
++  const coupons: Coupon[] = [];
++  for (const code of requested) {
++    const coupon = findCoupon(code, now);
++    if (seen.has(code)) throw new Error(`Duplicate coupon: ${code}`);
++    seen.add(code);
++    coupons.push(coupon);
++  }
++
++  const kindRank = (c: Coupon): number => (c.kind === "percent" ? 0 : 1);
++  const ordered = coupons.sort(
++    (a, b) => kindRank(a) - kindRank(b) || COUPONS.indexOf(a) - COUPONS.indexOf(b),
++  );
++
++  let running = subtotalCents;
++  for (const coupon of ordered) {
++    running -= Math.min(discountFor(coupon, running, subtotalCents), running);
++  }
++
++  const discountCents = subtotalCents - running;
++  const afterDiscount = running;
+   const taxCents = Math.round(afterDiscount * TAX_RATE);
+   return {
+     subtotalCents,

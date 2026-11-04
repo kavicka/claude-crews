@@ -1,0 +1,155 @@
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..057722b 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -28,3 +28,117 @@ describe("checkout", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
+ });
++
++describe("checkout with multiple coupon codes", () => {
++  const validNow = new Date("2025-08-01");
++  const expiredNow = new Date("2026-01-01");
++  const noDiscount = {
++    subtotalCents: 4400,
++    discountCents: 0,
++    taxCents: 880,
++    totalCents: 5280,
++  };
++
++  it("treats a one-element array like the equivalent string", () => {
++    expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++  });
++
++  it.each([
++    ["empty array", [] as string[]],
++    ["empty string", ""],
++    ["undefined", undefined],
++    ["null from an untyped caller", null as unknown as undefined],
++    ["array of only empty strings", ["", ""]],
++  ])("applies no discount for %s", (_name, codes) => {
++    expect(checkout(cart, codes)).toEqual(noDiscount);
++  });
++
++  it("stacks a percent and a fixed coupon on the original subtotal", () => {
++    expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 940,
++      taxCents: 692,
++      totalCents: 4152,
++    });
++  });
++
++  it("gives the same discount regardless of code order", () => {
++    expect(checkout(cart, ["SAVE5", "WELCOME10"])).toEqual(checkout(cart, ["WELCOME10", "SAVE5"]));
++    expect(checkout(cart, ["SAVE5", "WELCOME10"]).discountCents).toBe(940);
++  });
++
++  it("stacks two percent coupons additively, not compounding", () => {
++    expect(checkout(cart, ["WELCOME10", "SUMMER15"], validNow)).toEqual({
++      subtotalCents: 4400,
++      discountCents: 1100,
++      taxCents: 660,
++      totalCents: 3960,
++    });
++  });
++
++  it("ignores exact duplicate codes", () => {
++    expect(checkout(cart, ["WELCOME10", "WELCOME10"]).discountCents).toBe(440);
++  });
++
++  it("drops empty-string entries alongside real codes", () => {
++    expect(checkout(cart, ["", "WELCOME10"]).discountCents).toBe(440);
++  });
++
++  it("checks the minimum subtotal against the original subtotal", () => {
++    const threeThousand = [{ sku: "x", priceCents: 3000, qty: 1 }];
++    expect(checkout(threeThousand, ["WELCOME10", "SAVE5"])).toEqual({
++      subtotalCents: 3000,
++      discountCents: 800,
++      taxCents: 440,
++      totalCents: 2640,
++    });
++  });
++
++  it("gives no discount for a coupon below its minimum without throwing", () => {
++    const small = [{ sku: "x", priceCents: 2000, qty: 1 }];
++    expect(checkout(small, "SAVE5").discountCents).toBe(0);
++  });
++
++  it("caps the discount at the subtotal for a single string code", () => {
++    const small = [{ sku: "x", priceCents: 2400, qty: 1 }];
++    expect(checkout(small, "GIFT25")).toEqual({
++      subtotalCents: 2400,
++      discountCents: 2400,
++      taxCents: 0,
++      totalCents: 0,
++    });
++  });
++
++  it("caps stacked discounts at the subtotal in either order", () => {
++    const small = [{ sku: "x", priceCents: 2400, qty: 1 }];
++    const expected = { subtotalCents: 2400, discountCents: 2400, taxCents: 0, totalCents: 0 };
++    expect(checkout(small, ["GIFT25", "WELCOME10"])).toEqual(expected);
++    expect(checkout(small, ["WELCOME10", "GIFT25"])).toEqual(expected);
++  });
++
++  it("throws for an unknown code even when other codes are valid", () => {
++    expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon: NOPE");
++  });
++
++  it("throws on the first bad code in input order (unknown before expired)", () => {
++    expect(() => checkout(cart, ["NOPE", "SUMMER15"], expiredNow)).toThrow("Unknown coupon: NOPE");
++  });
++
++  it("throws for an expired code in a list", () => {
++    expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], expiredNow)).toThrow(
++      "Coupon expired: SUMMER15",
++    );
++  });
++
++  it("does not mutate the input array", () => {
++    const codes = Object.freeze(["WELCOME10", "", "WELCOME10", "SAVE5"]);
++    const copy = [...codes];
++    expect(() => checkout(cart, codes)).not.toThrow();
++    expect(codes).toEqual(copy);
++  });
++
++  it("accepts a readonly tuple", () => {
++    const codes = ["WELCOME10", "SAVE5"] as const;
++    expect(checkout(cart, codes).discountCents).toBe(940);
++  });
++});
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..7bcfcd2 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -46,9 +46,26 @@ export function discountFor(coupon: Coupon, amountCents: number): number {
+   return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Computes a receipt for `items`, applying zero or more coupon codes.
++ *
++ * - `codes` may be a single string or an array; `""` entries are ignored and
++ *   exact duplicates are dropped (first occurrence kept, case-sensitive, no trimming).
++ * - All codes are resolved via `findCoupon` in input order before any discount is
++ *   computed; the first unknown or expired code throws.
++ * - Each coupon's discount is computed on the original subtotal (including its
++ *   min-subtotal check); discounts are summed and capped at the subtotal.
++ */
++export function checkout(
++  items: Item[],
++  codes?: string | readonly string[],
++  now: Date = new Date(),
++): Receipt {
++  const list = codes == null ? [] : typeof codes === "string" ? [codes] : codes;
++  const coupons = [...new Set(list.filter((c) => c !== ""))].map((c) => findCoupon(c, now));
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
++  const discountSum = coupons.reduce((sum, coupon) => sum + discountFor(coupon, subtotalCents), 0);
++  const discountCents = Math.min(discountSum, subtotalCents);
+   const afterDiscount = subtotalCents - discountCents;
+   const taxCents = Math.round(afterDiscount * TAX_RATE);
+   return {

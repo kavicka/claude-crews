@@ -1,0 +1,53 @@
+{
+  "variant": "crew",
+  "n": 1,
+  "exit_code": 0,
+  "wall_seconds": 436.9,
+  "cost_usd": 1.7583913999999998,
+  "num_turns": 10,
+  "tokens_by_model": {
+    "claude-opus-5-5": {
+      "inputTokens": 88,
+      "outputTokens": 48001,
+      "cacheReadInputTokens": 697540,
+      "cacheCreationInputTokens": 88281
+    },
+    "claude-sonnet-5-5": {
+      "inputTokens": 12,
+      "outputTokens": 6125,
+      "cacheReadInputTokens": 78274,
+      "cacheCreationInputTokens": 19164
+    }
+  },
+  "subagents": [
+    "crew:planner",
+    "crew:skeptic",
+    "crew:web-coder",
+    "crew:tester",
+    "crew:reviewer"
+  ],
+  "hidden_test_leak_suspected": false,
+  "score": {
+    "own_tests_passed": 24,
+    "own_tests_total": 24,
+    "typecheck_ok": true,
+    "hidden_passed": 11,
+    "hidden_total": 12,
+    "hidden_failed": [
+      "C1"
+    ],
+    "probe": {
+      "two_percent": {
+        "carts": 2786,
+        "dependent": 0,
+        "example": ""
+      },
+      "percent_and_fixed": {
+        "carts": 2786,
+        "dependent": 0,
+        "example": ""
+      },
+      "free_cart_total": "0"
+    }
+  }
+}

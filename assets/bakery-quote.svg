@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 736" width="760" height="736" role="img" aria-label="Quote workflow: the main session asks six scoping questions, Lucia answers, the quote builder drafts 3 600 euros, the pricing analyst and skeptic object, the builder revises to 3 500 euros">
+<style>
+text{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#F5F4EE}
+.ini{font-size:10px;font-weight:700;fill:#2B2522;text-anchor:middle}
+.who{font-size:12.5px;font-weight:700}
+.tag{font-weight:400;fill:#A8A59B}
+.head{font-family:Georgia,"Times New Roman",serif;font-size:16px}
+.line{font-size:13px;fill:#A8A59B}
+.chip{font-size:12px;font-weight:700;text-anchor:middle}
+.top{font-size:12px;fill:#A8A59B;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+.b{opacity:0;animation-duration:24.2s;animation-iteration-count:infinite;animation-timing-function:ease-out}
+@media (prefers-reduced-motion: reduce){.b{animation:none;opacity:1}}
+
+.av-bob{animation:av-bob 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}
+.av-shadow{animation:av-shadow 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 50%}
+.av-eyes{animation:av-blink 5.2s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 50%}
+.av-acc{animation:av-acc 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}
+@keyframes av-bob{0%,100%{transform:translateY(0) scale(1,1)}45%{transform:translateY(-3px) scale(.985,1.02)}55%{transform:translateY(-3px) scale(.985,1.02)}85%{transform:translateY(0) scale(1.03,.97)}}
+@keyframes av-shadow{0%,100%{transform:scale(1,1);opacity:1}50%{transform:scale(.86,.86);opacity:.7}}
+@keyframes av-blink{0%,90%,100%{transform:scaleY(1)}93%{transform:scaleY(.08)}96%{transform:scaleY(1)}}
+@keyframes av-acc{0%,100%{transform:rotate(0)}50%{transform:rotate(-5deg) translateY(-1px)}}
+@media (prefers-reduced-motion: reduce){.av-bob,.av-shadow,.av-eyes,.av-acc{animation:none}}
+
+@keyframes quote0{0%,2.5%{opacity:0;transform:translateY(8px)}5.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote1{0%,12.0%{opacity:0;transform:translateY(8px)}15.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote2{0%,21.5%{opacity:0;transform:translateY(8px)}24.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote3{0%,31.0%{opacity:0;transform:translateY(8px)}34.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote4{0%,40.5%{opacity:0;transform:translateY(8px)}43.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote5{0%,50.0%{opacity:0;transform:translateY(8px)}53.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote6{0%,59.5%{opacity:0;transform:translateY(8px)}62.5%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+@keyframes quote7{0%,69.0%{opacity:0;transform:translateY(8px)}72.0%,93%{opacity:1;transform:translateY(0)}98%,100%{opacity:0}}
+</style>
+<rect width="760" height="736" rx="14" fill="#262624"/>
+<text x="20" y="36" class="top">2 · /office:quote · real run, condensed · examples/bakery/runs/quote</text>
+<g class="b" style="animation-name:quote0">
+<rect x="64" y="58" width="676" height="68" rx="12" fill="#3A3530" stroke="#6B5D50"/>
+<circle cx="36" cy="75" r="15" fill="#E8DCC8" stroke="#2B2522" stroke-width="2"/><text x="36" y="80" class="ini">You</text>
+<text x="78" y="79" class="who" fill="#E8DCC8">Lucia (you)</text>
+<text x="78" y="100" class="head">/office:quote one-page online ordering site for a bakery, SK + EN</text>
+<text x="78" y="120" class="line">…contact form to email</text>
+</g>
+<g class="b" style="animation-name:quote1">
+<rect x="64" y="136" width="676" height="88" rx="12" fill="#3B2F2A" stroke="#D97757"/>
+<circle cx="36" cy="153" r="15" fill="#D97757" stroke="#2B2522" stroke-width="2"/><text x="36" y="158" class="ini">?</text>
+<text x="78" y="157" class="who" fill="#D97757">office <tspan class="tag">· asks you</tspan></text>
+<text x="78" y="178" class="head">Six questions first: each moves the price by more than 20 %.</text>
+<text x="78" y="198" class="line">Form to email only (about 1 700 €) or pickup slots (about 3 300 €)?</text>
+<text x="78" y="218" class="line">Payments? An order list? Who writes the texts? Deadline?</text>
+</g>
+<g class="b" style="animation-name:quote2">
+<rect x="64" y="234" width="676" height="68" rx="12" fill="#3A3530" stroke="#6B5D50"/>
+<circle cx="36" cy="251" r="15" fill="#E8DCC8" stroke="#2B2522" stroke-width="2"/><text x="36" y="256" class="ini">You</text>
+<text x="78" y="255" class="who" fill="#E8DCC8">Lucia (you)</text>
+<text x="78" y="276" class="head">Pickup slots, pay at pickup, a list for the morning shift.</text>
+<text x="78" y="296" class="line">Jana: 3 000 € excl. VAT, up to 3 500 €. Texts by 20 November.</text>
+</g>
+<g class="b" style="animation-name:quote3">
+<rect x="64" y="312" width="676" height="68" rx="12" fill="#30302E" stroke="#45443F"/>
+<g transform="translate(14 308) scale(0.46)"><defs>
+<radialGradient id="s3-b" cx="34%" cy="26%" r="80%"><stop offset="0" stop-color="#EAD0BF"/><stop offset=".45" stop-color="#D4A27F"/><stop offset="1" stop-color="#99755B"/></radialGradient>
+<linearGradient id="s3-ao" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#6A5140" stop-opacity="0"/><stop offset="1" stop-color="#6A5140" stop-opacity=".55"/></linearGradient>
+<radialGradient id="s3-rim" cx="78%" cy="70%" r="45%"><stop offset=".6" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#FFE7D6" stop-opacity=".35"/></radialGradient>
+<radialGradient id="s3-sp" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<radialGradient id="s3-sh" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="s3-eye" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".7" stop-color="#F4EFE8"/><stop offset="1" stop-color="#D9D1C6"/></radialGradient>
+<radialGradient id="s3-iris" cx="40%" cy="35%" r="65%"><stop offset="0" stop-color="#5A4A42"/><stop offset="1" stop-color="#1C1714"/></radialGradient>
+<radialGradient id="s3-ck" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FF8F7E" stop-opacity=".55"/><stop offset="1" stop-color="#FF8F7E" stop-opacity="0"/></radialGradient>
+<linearGradient id="s3-lid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EAD0BF"/><stop offset="1" stop-color="#99755B"/></linearGradient>
+<filter id="s3-ds" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity=".35"/></filter>
+</defs><ellipse class="av-shadow" style="animation-delay:-1.59s" cx="48" cy="90" rx="27" ry="4.5" fill="url(#s3-sh)"/><g class="av-bob" style="animation-delay:-1.59s"><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s3-b)"/><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s3-ao)"/><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s3-rim)"/><ellipse cx="34" cy="31" rx="11" ry="6" transform="rotate(-28 34 31)" fill="url(#s3-sp)" opacity=".75"/><circle cx="27" cy="40" r="2.2" fill="#FFFFFF" opacity=".55"/><g class="av-acc" filter="url(#s3-ds)" style="animation-delay:-1.59s"><path d="M64 60 H88 V90 L84 87 L80 90 L76 87 L72 90 L68 87 L64 90 Z" fill="#FBF7F0" stroke="#2B2522" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M69 68 H83 M69 74 H83" stroke="#D4A27F" stroke-width="2.2" stroke-linecap="round"/><path d="M69 80 H77" stroke="#D97757" stroke-width="2.6" stroke-linecap="round"/></g><ellipse cx="27" cy="63" rx="7" ry="4.5" fill="url(#s3-ck)"/><ellipse cx="69" cy="63" rx="7" ry="4.5" fill="url(#s3-ck)"/><g class="av-eyes" style="animation-delay:-11.59s"><ellipse cx="36" cy="53" rx="7.5" ry="7" fill="url(#s3-eye)"/><circle cx="37.2" cy="54.2" r="4.34" fill="url(#s3-iris)"/><circle cx="39.0" cy="51.6" r="1.82" fill="#FFFFFF"/><circle cx="35.6" cy="55.6" r="0.77" fill="#FFFFFF" opacity=".8"/><ellipse cx="60" cy="53" rx="7.5" ry="7" fill="url(#s3-eye)"/><circle cx="61.2" cy="54.2" r="4.34" fill="url(#s3-iris)"/><circle cx="63.0" cy="51.6" r="1.82" fill="#FFFFFF"/><circle cx="59.6" cy="55.6" r="0.77" fill="#FFFFFF" opacity=".8"/><path d="M28 44 L44 47" stroke="#2B2522" stroke-width="3" stroke-linecap="round"/><path d="M52 47 L68 44" stroke="#2B2522" stroke-width="3" stroke-linecap="round"/></g><path d="M40 67 Q48 74.5 56 67" stroke="#2B2522" stroke-width="3.2" fill="none" stroke-linecap="round"/></g></g>
+<text x="78" y="333" class="who" fill="#E3B25B">quote-builder</text>
+<text x="78" y="354" class="head">Draft: 72 h, 3 600 €, 100 € over her ceiling.</text>
+<text x="78" y="374" class="line">Priced from the hours, not squeezed into the budget. Cuts are listed.</text>
+<rect x="661.6" y="321" width="64.4" height="22" rx="11" fill="#E3B25B" opacity=".18"/>
+<text x="693.8" y="336" class="chip" fill="#E3B25B">3 600 €</text>
+</g>
+<g class="b" style="animation-name:quote4">
+<rect x="64" y="390" width="676" height="68" rx="12" fill="#30302E" stroke="#45443F"/>
+<g transform="translate(14 386) scale(0.46)"><defs>
+<radialGradient id="s4-b" cx="34%" cy="26%" r="80%"><stop offset="0" stop-color="#F1D8AD"/><stop offset=".45" stop-color="#E3B25B"/><stop offset="1" stop-color="#A38042"/></radialGradient>
+<linearGradient id="s4-ao" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#72592E" stop-opacity="0"/><stop offset="1" stop-color="#72592E" stop-opacity=".55"/></linearGradient>
+<radialGradient id="s4-rim" cx="78%" cy="70%" r="45%"><stop offset=".6" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#FFE7D6" stop-opacity=".35"/></radialGradient>
+<radialGradient id="s4-sp" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<radialGradient id="s4-sh" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="s4-eye" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".7" stop-color="#F4EFE8"/><stop offset="1" stop-color="#D9D1C6"/></radialGradient>
+<radialGradient id="s4-iris" cx="40%" cy="35%" r="65%"><stop offset="0" stop-color="#5A4A42"/><stop offset="1" stop-color="#1C1714"/></radialGradient>
+<radialGradient id="s4-ck" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FF8F7E" stop-opacity=".55"/><stop offset="1" stop-color="#FF8F7E" stop-opacity="0"/></radialGradient>
+<linearGradient id="s4-lid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F1D8AD"/><stop offset="1" stop-color="#A38042"/></linearGradient>
+<filter id="s4-ds" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity=".35"/></filter>
+</defs><ellipse class="av-shadow" style="animation-delay:-2.12s" cx="48" cy="90" rx="27" ry="4.5" fill="url(#s4-sh)"/><g class="av-bob" style="animation-delay:-2.12s"><path d="M26 28 H70 C80 28 86 38 86 56 C86 74 80 84 70 84 H26 C16 84 10 74 10 56 C10 38 16 28 26 28 Z" fill="url(#s4-b)"/><path d="M26 28 H70 C80 28 86 38 86 56 C86 74 80 84 70 84 H26 C16 84 10 74 10 56 C10 38 16 28 26 28 Z" fill="url(#s4-ao)"/><path d="M26 28 H70 C80 28 86 38 86 56 C86 74 80 84 70 84 H26 C16 84 10 74 10 56 C10 38 16 28 26 28 Z" fill="url(#s4-rim)"/><ellipse cx="34" cy="31" rx="11" ry="6" transform="rotate(-28 34 31)" fill="url(#s4-sp)" opacity=".75"/><circle cx="27" cy="40" r="2.2" fill="#FFFFFF" opacity=".55"/><g class="av-acc" filter="url(#s4-ds)" style="animation-delay:-2.12s"><circle cx="78" cy="20" r="13" fill="#E3B25B" stroke="#2B2522" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="78" cy="20" r="9" fill="none" stroke="#AA8644" stroke-width="1.6"/><text x="78" y="25" text-anchor="middle" font-family="Georgia, serif" font-size="14" font-weight="700" fill="#7D6232">€</text><path d="M70 13 Q72 9 77 8" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" opacity=".7" fill="none"/></g><ellipse cx="27" cy="63" rx="7" ry="4.5" fill="url(#s4-ck)"/><ellipse cx="69" cy="63" rx="7" ry="4.5" fill="url(#s4-ck)"/><g class="av-eyes" style="animation-delay:-12.12s"><ellipse cx="36" cy="52" rx="7.5" ry="8.8" fill="url(#s4-eye)"/><circle cx="37.2" cy="53.2" r="4.65" fill="url(#s4-iris)"/><circle cx="39.0" cy="50.6" r="1.9500000000000002" fill="#FFFFFF"/><circle cx="35.6" cy="54.6" r="0.825" fill="#FFFFFF" opacity=".8"/><ellipse cx="60" cy="52" rx="7.5" ry="8.8" fill="url(#s4-eye)"/><circle cx="61.2" cy="53.2" r="4.65" fill="url(#s4-iris)"/><circle cx="63.0" cy="50.6" r="1.9500000000000002" fill="#FFFFFF"/><circle cx="59.6" cy="54.6" r="0.825" fill="#FFFFFF" opacity=".8"/></g><path d="M41 68 Q48 69 55 68" stroke="#2B2522" stroke-width="3.2" fill="none" stroke-linecap="round"/></g></g>
+<text x="78" y="411" class="who" fill="#E3B25B">pricing-analyst</text>
+<text x="78" y="432" class="head">Hours are short against the florist project&#x27;s actuals.</text>
+<text x="78" y="452" class="line">Also: Slovak VAT is 23 % since January 2025, not the 20 % in your file.</text>
+<rect x="640.0" y="399" width="86.0" height="22" rx="11" fill="#E3B25B" opacity=".18"/>
+<text x="683.0" y="414" class="chip" fill="#E3B25B">NEEDS INFO</text>
+</g>
+<g class="b" style="animation-name:quote5">
+<rect x="64" y="468" width="676" height="68" rx="12" fill="#30302E" stroke="#45443F"/>
+<g transform="translate(14 464) scale(0.46)"><defs>
+<radialGradient id="s5-b" cx="34%" cy="26%" r="80%"><stop offset="0" stop-color="#E2B4AC"/><stop offset=".45" stop-color="#C46A5A"/><stop offset="1" stop-color="#8D4C41"/></radialGradient>
+<linearGradient id="s5-ao" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#62352D" stop-opacity="0"/><stop offset="1" stop-color="#62352D" stop-opacity=".55"/></linearGradient>
+<radialGradient id="s5-rim" cx="78%" cy="70%" r="45%"><stop offset=".6" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#FFE7D6" stop-opacity=".35"/></radialGradient>
+<radialGradient id="s5-sp" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<radialGradient id="s5-sh" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="s5-eye" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".7" stop-color="#F4EFE8"/><stop offset="1" stop-color="#D9D1C6"/></radialGradient>
+<radialGradient id="s5-iris" cx="40%" cy="35%" r="65%"><stop offset="0" stop-color="#5A4A42"/><stop offset="1" stop-color="#1C1714"/></radialGradient>
+<radialGradient id="s5-ck" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FF8F7E" stop-opacity=".55"/><stop offset="1" stop-color="#FF8F7E" stop-opacity="0"/></radialGradient>
+<linearGradient id="s5-lid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E2B4AC"/><stop offset="1" stop-color="#8D4C41"/></linearGradient>
+<filter id="s5-ds" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity=".35"/></filter>
+</defs><ellipse class="av-shadow" style="animation-delay:-2.65s" cx="48" cy="90" rx="27" ry="4.5" fill="url(#s5-sh)"/><g class="av-bob" style="animation-delay:-2.65s"><path d="M40 20 C62 14 84 30 82 54 C80 76 64 88 44 86 C24 84 12 70 14 50 C16 34 24 24 40 20 Z" fill="url(#s5-b)"/><path d="M40 20 C62 14 84 30 82 54 C80 76 64 88 44 86 C24 84 12 70 14 50 C16 34 24 24 40 20 Z" fill="url(#s5-ao)"/><path d="M40 20 C62 14 84 30 82 54 C80 76 64 88 44 86 C24 84 12 70 14 50 C16 34 24 24 40 20 Z" fill="url(#s5-rim)"/><ellipse cx="34" cy="31" rx="11" ry="6" transform="rotate(-28 34 31)" fill="url(#s5-sp)" opacity=".75"/><circle cx="27" cy="40" r="2.2" fill="#FFFFFF" opacity=".55"/><g class="av-acc" filter="url(#s5-ds)" style="animation-delay:-2.65s"><circle cx="78" cy="20" r="13" fill="#FBF7F0" stroke="#2B2522" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M73.5 16 Q74 11 78.5 11 Q83 11.5 83 16 Q83 19.5 78.5 21 V24" stroke="#D97757" stroke-width="3" stroke-linecap="round" fill="none"/><circle cx="78.5" cy="29" r="2" fill="#D97757"/><path d="M70 13 Q72 9 76 8" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" opacity=".7" fill="none"/></g><ellipse cx="27" cy="63" rx="7" ry="4.5" fill="url(#s5-ck)"/><ellipse cx="69" cy="63" rx="7" ry="4.5" fill="url(#s5-ck)"/><g class="av-eyes" style="animation-delay:-12.65s"><ellipse cx="36" cy="52" rx="7.5" ry="8.5" fill="url(#s5-eye)"/><circle cx="37.2" cy="53.2" r="4.65" fill="url(#s5-iris)"/><circle cx="39.0" cy="50.6" r="1.9500000000000002" fill="#FFFFFF"/><circle cx="35.6" cy="54.6" r="0.825" fill="#FFFFFF" opacity=".8"/><ellipse cx="60" cy="53" rx="7.5" ry="8.5" fill="url(#s5-eye)"/><circle cx="61.2" cy="54.2" r="4.65" fill="url(#s5-iris)"/><circle cx="63.0" cy="51.6" r="1.9500000000000002" fill="#FFFFFF"/><circle cx="59.6" cy="55.6" r="0.825" fill="#FFFFFF" opacity=".8"/><path d="M52 44 H68 V49 Q60 52 52 49 Z" fill="url(#s5-lid)"/><path d="M28 41 L44 37" stroke="#2B2522" stroke-width="3.2" stroke-linecap="round"/><path d="M52 45 L68 45" stroke="#2B2522" stroke-width="3.2" stroke-linecap="round"/></g><path d="M41 69 Q50 70.5 57 64" stroke="#2B2522" stroke-width="3.2" fill="none" stroke-linecap="round"/></g></g>
+<text x="78" y="489" class="who" fill="#B49AC4">skeptic</text>
+<text x="78" y="510" class="head">Cancelled orders and unpaid cakes would still get baked.</text>
+<text x="78" y="530" class="line">Nobody can cancel an order or free its slot: that was last December&#x27;s 9 cakes.</text>
+<rect x="654.4" y="477" width="71.6" height="22" rx="11" fill="#D97757" opacity=".18"/>
+<text x="690.2" y="492" class="chip" fill="#D97757">MUST FIX</text>
+</g>
+<g class="b" style="animation-name:quote6">
+<rect x="64" y="546" width="676" height="88" rx="12" fill="#2E3529" stroke="#8FA876"/>
+<g transform="translate(14 542) scale(0.46)"><defs>
+<radialGradient id="s6-b" cx="34%" cy="26%" r="80%"><stop offset="0" stop-color="#EAD0BF"/><stop offset=".45" stop-color="#D4A27F"/><stop offset="1" stop-color="#99755B"/></radialGradient>
+<linearGradient id="s6-ao" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#6A5140" stop-opacity="0"/><stop offset="1" stop-color="#6A5140" stop-opacity=".55"/></linearGradient>
+<radialGradient id="s6-rim" cx="78%" cy="70%" r="45%"><stop offset=".6" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#FFE7D6" stop-opacity=".35"/></radialGradient>
+<radialGradient id="s6-sp" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<radialGradient id="s6-sh" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="s6-eye" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".7" stop-color="#F4EFE8"/><stop offset="1" stop-color="#D9D1C6"/></radialGradient>
+<radialGradient id="s6-iris" cx="40%" cy="35%" r="65%"><stop offset="0" stop-color="#5A4A42"/><stop offset="1" stop-color="#1C1714"/></radialGradient>
+<radialGradient id="s6-ck" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FF8F7E" stop-opacity=".55"/><stop offset="1" stop-color="#FF8F7E" stop-opacity="0"/></radialGradient>
+<linearGradient id="s6-lid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EAD0BF"/><stop offset="1" stop-color="#99755B"/></linearGradient>
+<filter id="s6-ds" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity=".35"/></filter>
+</defs><ellipse class="av-shadow" style="animation-delay:-3.18s" cx="48" cy="90" rx="27" ry="4.5" fill="url(#s6-sh)"/><g class="av-bob" style="animation-delay:-3.18s"><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s6-b)"/><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s6-ao)"/><path d="M30 20 H66 C76 20 80 26 80 36 V70 C80 80 74 86 64 86 H32 C22 86 16 80 16 70 V36 C16 26 20 20 30 20 Z" fill="url(#s6-rim)"/><ellipse cx="34" cy="31" rx="11" ry="6" transform="rotate(-28 34 31)" fill="url(#s6-sp)" opacity=".75"/><circle cx="27" cy="40" r="2.2" fill="#FFFFFF" opacity=".55"/><g class="av-acc" filter="url(#s6-ds)" style="animation-delay:-3.18s"><path d="M64 60 H88 V90 L84 87 L80 90 L76 87 L72 90 L68 87 L64 90 Z" fill="#FBF7F0" stroke="#2B2522" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M69 68 H83 M69 74 H83" stroke="#D4A27F" stroke-width="2.2" stroke-linecap="round"/><path d="M69 80 H77" stroke="#D97757" stroke-width="2.6" stroke-linecap="round"/></g><ellipse cx="27" cy="63" rx="7" ry="4.5" fill="url(#s6-ck)"/><ellipse cx="69" cy="63" rx="7" ry="4.5" fill="url(#s6-ck)"/><g class="av-eyes" style="animation-delay:-13.18s"><ellipse cx="36" cy="53" rx="7.5" ry="7" fill="url(#s6-eye)"/><circle cx="37.2" cy="54.2" r="4.34" fill="url(#s6-iris)"/><circle cx="39.0" cy="51.6" r="1.82" fill="#FFFFFF"/><circle cx="35.6" cy="55.6" r="0.77" fill="#FFFFFF" opacity=".8"/><ellipse cx="60" cy="53" rx="7.5" ry="7" fill="url(#s6-eye)"/><circle cx="61.2" cy="54.2" r="4.34" fill="url(#s6-iris)"/><circle cx="63.0" cy="51.6" r="1.82" fill="#FFFFFF"/><circle cx="59.6" cy="55.6" r="0.77" fill="#FFFFFF" opacity=".8"/><path d="M28 44 L44 47" stroke="#2B2522" stroke-width="3" stroke-linecap="round"/><path d="M52 47 L68 44" stroke="#2B2522" stroke-width="3" stroke-linecap="round"/></g><path d="M40 67 Q48 74.5 56 67" stroke="#2B2522" stroke-width="3.2" fill="none" stroke-linecap="round"/></g></g>
+<text x="78" y="567" class="who" fill="#E3B25B">quote-builder <tspan class="tag">· for the client</tspan></text>
+<text x="78" y="588" class="head">Phase 1: 3 500 € excl. VAT, launch 1 December.</text>
+<text x="78" y="608" class="line">Photos moved to an add-on, no discount. Phase 2 (500 €) adds a &#x27;cancelled&#x27; switch.</text>
+<text x="78" y="628" class="line">Quote in Slovak, in ~/knowledge. Nothing was sent to Jana.</text>
+<rect x="661.6" y="555" width="64.4" height="22" rx="11" fill="#E3B25B" opacity=".18"/>
+<text x="693.8" y="570" class="chip" fill="#E3B25B">3 500 €</text>
+</g>
+<g class="b" style="animation-name:quote7">
+<rect x="64" y="644" width="676" height="68" rx="12" fill="#3B2F2A" stroke="#D97757"/>
+<circle cx="36" cy="661" r="15" fill="#D97757" stroke="#2B2522" stroke-width="2"/><text x="36" y="666" class="ini">?</text>
+<text x="78" y="665" class="who" fill="#D97757">office <tspan class="tag">· asks you</tspan></text>
+<text x="78" y="686" class="head">Only you can check: how does the site send email today?</text>
+<text x="78" y="706" class="line">In the repo the contact form only prints to the console.</text>
+</g>
+</svg>

@@ -14,7 +14,7 @@ The templates live in `../../templates/knowledge/` relative to this skill's base
 
 ## 2. Interview (one round per file, AskUserQuestion or plain questions, skip what the user doesn't want to fill now)
 
-1. **`profile.md`:** name, what they do in one line, services, stack or skills, 3–5 proof projects with one number each, ideal clients (niches, regions, company size), hard rules (things never to claim or mention), languages, and the Job search section if they look for jobs.
+1. **`profile.md`:** name, what they do in one line, services, stack or skills, 3–5 proof projects with one number each, ideal clients (niches, regions, company size), hard rules (things never to claim or mention), outreach rules (how they may contact people they haven't worked with, in the countries they sell to; say it isn't legal advice), design preferences (optional), languages, and the Job search section if they look for jobs.
 2. **`pricing/README.md`:** currency, hourly rate, fixed-price policy, payment terms, revision rounds, quote validity, 3–10 add-ons with prices. Offer to import past quotes: the user points to files, you copy them into `pricing/quotes/` after removing client personal data they don't want stored.
 3. **`voice/README.md`:** default language and formality, greeting, sign-off, signature, words they never use. Ask for 1–3 real messages they sent that worked, and save them to `voice/samples/`.
 

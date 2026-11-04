@@ -4,19 +4,20 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#before-and-after-a-real-run">Before / after</a> ·
+  <a href="#one-story-a-bakery-goes-online">Bakery story</a> ·
+  <a href="#does-the-crew-pay-off-measured">Benchmark</a> ·
   <a href="#the-crews">The crews</a> ·
   <a href="#model-and-effort-routing">Model routing</a> ·
   <a href="examples">Examples</a>
 </p>
 
 <p align="center">
-  <img src="assets/council-chat.svg" width="760" alt="A real /council:vote run: five members debate, the skeptic corrects its own math, the moderator rules PASSED at 80 percent">
+  <img src="assets/bakery-council.svg" width="760" alt="A real /council:vote run for a bakery: five members vote no on online payments at launch, the skeptic finds a gap in round two, the moderator rejects the motion and lists six questions for the client">
 </p>
 
 One Claude answers fast and sounds sure. It doesn't argue with itself, it doesn't stop to ask about the business rule it just guessed, and nobody checks its numbers. **claude-crews** gives Claude Code three small teams that do: a dev crew that plans, gets challenged, codes, tests and reviews; an office crew for quotes, outreach and research; and a council that debates a decision in rounds and votes. Each agent runs on the model and effort its job needs: Opus at `xhigh` for review and security, Sonnet for research, Haiku for lookups.
 
-You only see the results, plus one checkpoint where you approve the plan.
+You see the results, and the agents stop to ask you whenever something is yours to decide: a business rule, a price, a scope.
 
 ## Meet the crew
 
@@ -55,31 +56,79 @@ Then, once:
 
 It creates `~/knowledge/` (your profile, rates, writing voice) from templates, interviews you to fill it in, and optionally installs the [model-routing rules](plugins/office/templates/model-routing.md) into `~/.claude/`. The crew plugin works without it.
 
-## Try it
+## One story: a bakery goes online
+
+A small family bakery takes 70 pre-orders a week by phone and Instagram and wants customers to order online and pick a time to collect. Its web developer, Lucia, runs all three crews, in the order a real project goes: decide, quote, build.
 
 ```text
-/crew:ship add rate limiting to the public contact form
-/council:vote --full Should I rewrite our Express API in NestJS this quarter?
-/office:quote one-page site for a bakery, Slovak + English, contact form to email
-/office:learn https://www.youtube.com/playlist?list=... what can I use from this in my workflow?
+/council:vote Should the bakery launch with online payments or start with pay-at-pickup?
+/office:quote one-page online ordering site for a bakery, Slovak + English, contact form to email
+/crew:ship add online ordering with pickup time slots to the bakery website
 ```
 
-## Before and after: a real run
+These are real recorded runs. The bakery, Lucia and every number about them are made up; the agents' work is not. When an agent asked a question, the answer was written by the person recording the example, playing Lucia. The whole conversation of each run, every brief and every agent's answer, is in [examples/bakery](examples/bakery).
 
-The same one-sentence task (*"let checkout accept several coupon codes at once"*) on two identical copies of a small TypeScript checkout. One got a single prompt (plain vibe coding with Opus). The other went through `/crew:ship`. Then both were scored against 12 hidden acceptance tests neither had seen.
+```mermaid
+sequenceDiagram
+    actor You as You (Lucia)
+    participant Council as council
+    participant Office as office
+    participant Crew as crew
+    You->>Council: /council:vote online payments or pay at pickup?
+    Note over Council: 5 members argue in 2 rounds,<br/>the moderator checks every number
+    Council->>You: REJECTED 0/5 · ❓ six questions for the client
+    You->>Office: /office:quote … (with the client's answers)
+    Office->>You: ❓ six scope questions, each moves the price over 20 %
+    You->>Office: answers
+    Note over Office: builder drafts 3 600 €,<br/>analyst and skeptic object, builder revises
+    Office->>You: quote in Slovak, 3 500 € · ❓ two checks only you can do
+    You->>Crew: /crew:ship add online ordering with pickup slots
+    Note over Crew: planner plans, skeptic attacks the plan
+    Crew->>You: ❓ checkpoint: slot capacity A or B?
+    You->>Crew: B, 8 per slot, cut-off 14:00 the day before
+    Note over Crew: coder and tester build,<br/>reviewer checks the diff
+    Crew->>You: code, tests and a summary, nothing committed
+```
 
-<p align="center"><img src="assets/before-after.svg" width="900" alt="Vibe vs crew: hidden tests 11/12 vs 12/12, 11 vs 23 tests, 67 s vs 13.8 min, 96k vs 601k tokens"></p>
+| Step | What the agents settled among themselves | What they asked you | What you got | Run |
+|---|---|---|---|---|
+| **1 · Decide** `/council:vote` | All five voted against payments at launch. In round 2 the skeptic noticed that everyone had relied on a cake deposit that is taken in the shop, so online cake orders would skip it. The moderator threw out six claims, including a card fee off by half. | Six questions to put to the client before quoting: VAT, content date, last December's no-shows, eKasa, English, cake deposits | Verdict, a recommendation with an optional cake-deposit line, and the full debate in `~/knowledge/council` | 8 min · $2.53 |
+| **2 · Quote** `/office:quote` | The builder priced 3 600 €. The pricing analyst said the hours were short against a similar past project and caught a wrong VAT rate in Lucia's own pricing file. The skeptic showed that cancelled orders would still get baked. The builder cut scope instead of discounting. | Six scope questions before any work; then two things only Lucia can check | A quote in Slovak: phase 1 at 3 500 €, optional phase 2, payment terms, timeline | 13 min · $3.01 |
+| **3 · Build** `/crew:ship` | The planner planned slots with a capacity of 4. The skeptic showed capacity kept in memory resets on every restart, that anyone could fill every slot, and an Express 4 crash. After Lucia's answer the tester found an old crash in the contact form; the reviewer sent the code back twice, the second time because a fix for double clicks had broken changed orders, then approved. | One decision at the checkpoint: drop slot capacity (A) or persist orders (B) | Ordering with 30-minute slots in both languages, 323 passing tests, a list of follow-ups, a proposed commit; nothing committed | 53 min · $16.54 |
 
-| | One prompt | `/crew:ship` |
-|---|---|---|
-| Hidden tests passed | 11 / 12 | **12 / 12** |
-| Tests afterwards (started with 4) | 11 | **23** |
-| Same coupons in a different order → same price? | ❌ 1035 vs 1036 cents | ✅ |
-| Business rules it asked you about instead of guessing | 0 | 3 |
-| Found that two coupons can make a cart free | no | yes (skeptic) |
-| Agent time / tokens | **67 s / 96 k** | 13.8 min / 601 k |
+<details>
+<summary><b>Step 2 as a chat</b>: the questions, the objections and the revised quote</summary>
+<p align="center"><img src="assets/bakery-quote.svg" width="760" alt="The quote workflow as a chat: six scope questions, Lucia's answers, a 3 600 euro draft, the analyst's and skeptic's objections, the revised 3 500 euro quote, and a question only Lucia can answer"></p>
+</details>
 
-**The honest takeaway:** a strong model vibe-coding a small change is good and much cheaper. The crew earns its cost when a wrong answer costs money: it surfaced decisions the single run made silently, and its reviewer caught a pricing bug the single run shipped. Every step, both diffs and the hidden tests are in [examples/coupon-demo](examples/coupon-demo).
+<details>
+<summary><b>Step 3 as a chat</b>: the plan, the skeptic, your decision, the review</summary>
+<p align="center"><img src="assets/bakery-crew.svg" width="760" alt="The crew workflow as a chat: plan, skeptic, the checkpoint question and Lucia's answer, the tester's crash report, two rounds of review and the approval"></p>
+</details>
+
+<details>
+<summary><b>The result</b>: the order form the crew built (English version)</summary>
+<p align="center"><img src="assets/bakery-order-form.png" width="320" alt="The bakery's order form: quantities for seven products with prices, a note that cakes need two days' notice, a pickup time select, name, email, optional phone and note, and a Place order button"></p>
+</details>
+
+The three runs cost $22 together, about two thirds of it in the crew's build and review loops. The [benchmark](#does-the-crew-pay-off-measured) has the numbers on when that pays off.
+
+More to try: `/crew:check` before a commit, `/office:outreach <company>`, `/office:learn <playlist> what can I use from this?`
+
+## Does the crew pay off? Measured
+
+The same small task (*"let checkout accept several coupon codes at once"*), five runs per variant, each scored against 12 hidden acceptance tests no run saw. Patches, transcripts and the script are in [examples/coupon-demo](examples/coupon-demo).
+
+<p align="center"><img src="assets/bench-results.svg" width="900" alt="Hidden tests: one prompt at medium 10.0, at xhigh 10.6, crew 10.2 of 12. Tests written: 11, 14, 21. Cost per run: $0.22, $0.25, $1.46. Time: 0.8, 1.1, 6.9 minutes."></p>
+
+| | One prompt · medium | One prompt · xhigh | `/crew:ship` |
+|---|---|---|---|
+| Hidden tests passed (of 12, mean) | 10.0 | **10.6** | 10.2 |
+| Price depends on the order of the codes | 4 / 5 runs | 0 / 5 | 0 / 5 |
+| Tests afterwards (started with 4) | 11 | 14 | **21** |
+| Cost · time per run | **$0.22 · 0.8 min** | $0.25 · 1.1 min | $1.46 · 6.9 min |
+
+**The honest result:** on a small, well-specified change the crew is not more correct than one prompt at `xhigh`, and it costs about 6× more. It writes more tests and always lists the decisions it took without you; in two runs those were exactly the rules the hidden tests checked. The crew is for work where those open questions matter and you want to answer them before the code exists. The [bakery story](#one-story-a-bakery-goes-online) shows that part.
 
 ## The crews
 
@@ -104,7 +153,7 @@ It ends with a summary and a proposed commit message. Nothing is committed, push
 
 Five members (optimist, **skeptic**, engineer, business, client) answer independently, then read each other and rebut the strongest counter-argument by name. The **moderator** (opus · xhigh) doesn't vote: it spot-checks the claims the decision hinges on, throws out the ones that fail, and passes the motion only when both the YES share and the confidence-weighted share reach 60 %.
 
-In the [real run above](examples/council-demo) the moderator rejected five confident numbers, including the skeptic's own headline argument, and the verdict came with conditions and a next step.
+In the [bakery run](examples/bakery/runs/council) the moderator rejected six claims, among them a card fee off by half and a date the simulated client invented, and ended with the questions to ask before quoting. In [another run](examples/council-demo) it rejected five confident numbers, including the skeptic's own headline argument.
 
 **Good questions:** "Take this 6-month contract?", "Charge 4 000 or 6 000 for this project?", "Postgres or DynamoDB for this service?", "Rewrite or refactor?"
 **Bad questions:** facts ("what's the capital of France"), tasks ("write a tweet"), anything with one right answer you could look up.
@@ -152,6 +201,10 @@ Every agent carries its own `model` and `effort` in its frontmatter, so a counci
 - Every claim needs evidence (`file:line`, a URL, a quote). The skeptics and the moderator drop claims that have none.
 - The knowledge base never stores secrets or other people's private data beyond name, role and public profile URL.
 
+### Leads and cold outreach: check the law first
+
+`lead-scout`, `researcher` and `outreach-writer` work with names and roles of real people and draft unsolicited messages. In the EU that is personal data under GDPR, and email marketing falls under national ePrivacy rules; several countries require prior consent even for business-to-business email. The agents keep only business data with its source, add a source and opt-out line to cold messages to the EU, and follow the **Outreach rules** you write in `~/knowledge/profile.md`, flagging any country those rules don't cover. They don't decide what is legal for you. This is not legal advice.
+
 ## Customize
 
 - Edit any agent in `plugins/*/agents/*.md`: change its `model`, `effort`, tools or rules.
@@ -171,7 +224,7 @@ plugins/
   council/  agents: optimist, skeptic, engineer, business, client, moderator
             skills: vote
 scripts/    check_plugins.py (repo rules, run in CI), avatars.py, council_chat.py
-examples/   coupon-demo (vibe vs crew, with hidden tests), council-demo (full debate transcript)
+examples/   bakery (one story through all three crews, recorded), coupon-demo (benchmark with hidden tests), council-demo
 ```
 
 23 agents, 10 workflows.

@@ -1,0 +1,17 @@
+{
+  "title": "Kvások & syn — rodinná pekáreň v Ružinove",
+  "tagline": "Kváskový chlieb, pečivo a torty na objednávku.",
+  "menuHeading": "Čo pečieme",
+  "hoursHeading": "Otváracie hodiny",
+  "days": ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"],
+  "closed": "zatvorené",
+  "contactHeading": "Napíšte nám",
+  "contactIntro": "Objednávky zatiaľ prijímame telefonicky na 02 123 456 78 alebo cez tento formulár.",
+  "name": "Meno",
+  "email": "E-mail",
+  "message": "Správa",
+  "send": "Odoslať",
+  "sent": "Ďakujeme, ozveme sa vám čo najskôr.",
+  "invalid": "Skontrolujte, prosím, meno, e-mail a správu.",
+  "otherLang": "English"
+}
