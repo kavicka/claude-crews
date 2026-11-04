@@ -1,0 +1,58 @@
+{
+  "note": "Condensed from runs/*/conversation.md. Every line paraphrases a real statement from the recorded runs; numbers are as the agents gave them.",
+  "acts": [
+    {
+      "id": "council",
+      "caption": "1 · /council:vote · real run, condensed · examples/bakery/runs/council",
+      "aria": "Council debate: five members vote no on online payments at launch, the skeptic finds a gap in round 2, the moderator rejects the motion and asks six questions for the client",
+      "messages": [
+        {"kind": "you", "who": "Lucia (you)", "head": "/council:vote Should the bakery launch with online payments or pay at pickup?",
+         "lines": ["Context comes from ~/knowledge: 70 pre-orders a week, 6 % no-shows, budget about 3 000 €."]},
+        {"kind": "agent", "who": "optimist", "avatar": "council:optimist", "chip": "NO 72",
+         "head": "Pay at pickup. Launching on time is worth more than payments.",
+         "lines": ["With payments and English the build is about 4 400 €, far over her budget."]},
+        {"kind": "agent", "who": "skeptic", "avatar": "council:skeptic", "chip": "NO 75",
+         "head": "Payments put the deadline at risk to fix a 93 € a week problem.",
+         "lines": ["70 × 14 € × 6 % + 15 × 38 € × 6 % ≈ 93 € a week in no-shows."]},
+        {"kind": "agent", "who": "client (playing Jana)", "avatar": "council:client", "chip": "NO 70",
+         "head": "A deposit only for cakes sounds right to me.",
+         "lines": ["Refunds scare me more than the fees do."]},
+        {"kind": "agent", "who": "skeptic · round 2", "avatar": "council:skeptic", "chip": "NO 70",
+         "head": "We all missed it: the cake deposit is taken in the shop.",
+         "lines": ["Cakes ordered online would skip it, right before Christmas."]},
+        {"kind": "agent", "who": "moderator", "avatar": "council:moderator", "chip": "REJECTED 0/5",
+         "head": "Launch with pay at pickup; quote cake deposits as an option.",
+         "lines": ["Six claims failed the evidence check, e.g. the card fee is 0.46 €, not 0.30 €."]},
+        {"kind": "ask", "who": "council", "head": "Before you quote, ask Jana six questions.",
+         "lines": ["Is the 3 000 € with or without VAT? When do texts and photos arrive?", "How many cakes were never picked up last December?"]}
+      ]
+    },
+    {
+      "id": "quote",
+      "caption": "2 · /office:quote · real run, condensed · examples/bakery/runs/quote",
+      "aria": "Quote workflow: the main session asks six scoping questions, Lucia answers, the quote builder drafts 3 600 euros, the pricing analyst and skeptic object, the builder revises to 3 500 euros",
+      "messages": [
+        {"kind": "you", "who": "Lucia (you)", "head": "/office:quote one-page online ordering site for a bakery, SK + EN",
+         "lines": ["…contact form to email"]},
+        {"kind": "ask", "who": "office", "head": "Six questions first: each moves the price by more than 20 %.",
+         "lines": ["Form to email only (about 1 700 €) or pickup slots (about 3 300 €)?", "Payments? An order list? Who writes the texts? Deadline?"]},
+        {"kind": "you", "who": "Lucia (you)", "head": "Pickup slots, pay at pickup, a list for the morning shift.",
+         "lines": ["Jana: 3 000 € excl. VAT, up to 3 500 €. Texts by 20 November."]},
+        {"kind": "agent", "who": "quote-builder", "avatar": "office:quote-builder", "chip": "3 600 €",
+         "head": "Draft: 72 h, 3 600 €, 100 € over her ceiling.",
+         "lines": ["Priced from the hours, not squeezed into the budget. Cuts are listed."]},
+        {"kind": "agent", "who": "pricing-analyst", "avatar": "office:pricing-analyst", "chip": "NEEDS INFO",
+         "head": "Hours are short against the florist project's actuals.",
+         "lines": ["Also: Slovak VAT is 23 % since January 2025, not the 20 % in your file."]},
+        {"kind": "agent", "who": "skeptic", "avatar": "council:skeptic", "chip": "MUST FIX",
+         "head": "Cancelled orders and unpaid cakes would still get baked.",
+         "lines": ["Nobody can cancel an order or free its slot: that was last December's 9 cakes."]},
+        {"kind": "deliver", "who": "quote-builder", "avatar": "office:quote-builder", "chip": "3 500 €",
+         "head": "Phase 1: 3 500 € excl. VAT, launch 1 December.",
+         "lines": ["Photos moved to an add-on, no discount. Phase 2 (500 €) adds a 'cancelled' switch.", "Quote in Slovak, in ~/knowledge. Nothing was sent to Jana."]},
+        {"kind": "ask", "who": "office", "head": "Only you can check: how does the site send email today?",
+         "lines": ["In the repo the contact form only prints to the console."]}
+      ]
+    }
+  ]
+}

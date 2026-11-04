@@ -27,7 +27,7 @@ def chip_color(text: str) -> str:
     t = text.upper()
     if t.startswith(("YES", "GO", "APPROVE", "PASSED", "FAIR", "✓")):
         return SAGE
-    if t.startswith(("NO", "RETHINK", "CHANGES", "REJECTED", "UNDER", "OVER")):
+    if t.startswith(("NO", "RETHINK", "CHANGES", "REJECTED", "UNDER", "OVER", "MUST")):
         return ORANGE
     return MUSTARD
 
