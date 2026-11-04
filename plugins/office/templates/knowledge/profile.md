@@ -37,6 +37,12 @@ Things agents must never claim, mention or do in your name.
 - <e.g. never mention client X>
 - <e.g. never claim experience with Y>
 
+## Design preferences
+
+Optional. The crew's ui-builder follows this when a project leaves the visual direction open.
+
+- <e.g. minimal and editorial, strong typography, one accent colour, no gradient blobs or emoji icons>
+
 ## Languages
 
 <e.g. English native, German B1>

@@ -216,6 +216,8 @@ AGENTS = [
     ("council", "business", "pill", KRAFT, "focused", "smile", "coin", "sonnet · medium"),
     ("council", "client", "drop", LILAC, "dot", "flat", "bubble", "sonnet · medium"),
     ("council", "moderator", "ghost", CREAM, "glasses", "flat", "gavel", "opus · xhigh"),
+    # New agents go last, so existing avatars keep their animation delays; the grid groups by plugin.
+    ("crew", "coder", "pill", KRAFT, "focused", "smile", "code", "opus · high"),
 ]
 
 
@@ -248,7 +250,7 @@ def write_avatars() -> None:
 
 
 def write_grid() -> None:
-    cols, cell_w, cell_h = 8, 112, 158
+    cols, cell_w, cell_h = max(sum(a[0] == s for a in AGENTS) for s in ("crew", "office", "council")), 112, 158
     sections = [("crew", "crew  ·  dev"), ("office", "office  ·  business"), ("council", "council  ·  decisions")]
     W = 24 * 2 + cols * cell_w
     parts, y, n = [], 54, 0
@@ -264,7 +266,7 @@ def write_grid() -> None:
             n += 1
         y += cell_h
     H = y - 6
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-label="The 22 agents of claude-crews">
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-label="The {len(AGENTS)} agents of claude-crews">
 <style>
 text {{ font-family: "Styrene B", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #F5F4EE; }}
 .sec {{ font-family: "Tiempos Headline", "Copernicus", Georgia, "Times New Roman", serif; font-size: 19px; }}

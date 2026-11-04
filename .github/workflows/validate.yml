@@ -1,0 +1,39 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Repo rules (agents, tools, references, README)
+        run: python3 scripts/check_plugins.py
+
+      - name: Avatars are up to date
+        run: |
+          python3 scripts/avatars.py
+          git diff --exit-code -- assets/ || (echo "Run python3 scripts/avatars.py and commit the result" && exit 1)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Pinned: newer validators add checks; bump deliberately.
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.318
+
+      - name: claude plugin validate
+        run: |
+          claude plugin validate .
+          for p in plugins/*/; do claude plugin validate "$p"; done
