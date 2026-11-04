@@ -1,0 +1,41 @@
+{
+  "variant": "vibe-xhigh",
+  "n": 3,
+  "exit_code": 0,
+  "wall_seconds": 59.1,
+  "cost_usd": 0.2271332,
+  "num_turns": 10,
+  "tokens_by_model": {
+    "claude-opus-5-5": {
+      "inputTokens": 12,
+      "outputTokens": 6131,
+      "cacheReadInputTokens": 73566,
+      "cacheCreationInputTokens": 11219
+    }
+  },
+  "subagents": [],
+  "hidden_test_leak_suspected": false,
+  "score": {
+    "own_tests_passed": 12,
+    "own_tests_total": 12,
+    "typecheck_ok": true,
+    "hidden_passed": 11,
+    "hidden_total": 12,
+    "hidden_failed": [
+      "C4"
+    ],
+    "probe": {
+      "two_percent": {
+        "carts": 2786,
+        "dependent": 0,
+        "example": ""
+      },
+      "percent_and_fixed": {
+        "carts": 2786,
+        "dependent": 0,
+        "example": ""
+      },
+      "free_cart_total": "0"
+    }
+  }
+}

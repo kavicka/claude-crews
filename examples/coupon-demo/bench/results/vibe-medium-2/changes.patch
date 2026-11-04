@@ -1,0 +1,102 @@
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..5e9b3e0 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -27,4 +27,50 @@ describe("checkout", () => {
+   it("rejects an unknown coupon", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
++
++  it("accepts a single code in an array", () => {
++    expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++  });
++
++  it("treats an empty array as no coupon", () => {
++    expect(checkout(cart, [])).toEqual(checkout(cart));
++  });
++
++  it("stacks coupons in order against the running amount", () => {
++    // 4400 - 10% (440) = 3960, then -500 = 3460
++    expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 940,
++      taxCents: 692,
++      totalCents: 4152,
++    });
++    // 4400 - 500 = 3900, then -10% (390) = 3510
++    expect(checkout(cart, ["SAVE5", "WELCOME10"]).discountCents).toBe(890);
++  });
++
++  it("checks a coupon's minimum against the already-discounted amount", () => {
++    // GIFT25 leaves 1900, below SAVE5's 3000 minimum
++    expect(checkout(cart, ["GIFT25", "SAVE5"]).discountCents).toBe(2500);
++  });
++
++  it("never discounts below zero", () => {
++    const small = [{ sku: "pen", priceCents: 1000, qty: 1 }];
++    expect(checkout(small, "GIFT25")).toEqual({
++      subtotalCents: 1000,
++      discountCents: 1000,
++      taxCents: 0,
++      totalCents: 0,
++    });
++  });
++
++  it("rejects a repeated code", () => {
++    expect(() => checkout(cart, ["SAVE5", "SAVE5"])).toThrow("Duplicate coupon");
++  });
++
++  it("rejects the whole checkout if any code is unknown or expired", () => {
++    expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon");
++    expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], new Date("2026-01-01"))).toThrow(
++      "Coupon expired",
++    );
++  });
+ });
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..6d2ed0d 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -46,15 +46,37 @@ export function discountFor(coupon: Coupon, amountCents: number): number {
+   return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Coupons are applied in the order given, each against the amount left after
++ * the previous ones (so minimums and percentages see the running amount).
++ * A coupon never discounts more than what remains, so the total can't go
++ * negative. Repeating a code is rejected.
++ */
++export function checkout(
++  items: Item[],
++  codes?: string | string[],
++  now: Date = new Date(),
++): Receipt {
++  const codeList = Array.isArray(codes) ? codes : codes ? [codes] : [];
++  const seen = new Set<string>();
++  for (const code of codeList) {
++    if (seen.has(code)) throw new Error(`Duplicate coupon: ${code}`);
++    seen.add(code);
++  }
++  // Validate every code up front so one bad code fails the whole checkout.
++  const coupons = codeList.map((code) => findCoupon(code, now));
++
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
+-  const afterDiscount = subtotalCents - discountCents;
+-  const taxCents = Math.round(afterDiscount * TAX_RATE);
++  let remaining = subtotalCents;
++  for (const coupon of coupons) {
++    remaining -= Math.min(discountFor(coupon, remaining), remaining);
++  }
++  const discountCents = subtotalCents - remaining;
++  const taxCents = Math.round(remaining * TAX_RATE);
+   return {
+     subtotalCents,
+     discountCents,
+     taxCents,
+-    totalCents: afterDiscount + taxCents,
++    totalCents: remaining + taxCents,
+   };
+ }

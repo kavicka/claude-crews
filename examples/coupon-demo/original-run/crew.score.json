@@ -1,0 +1,21 @@
+{
+  "own_tests_passed": 4,
+  "own_tests_total": 4,
+  "typecheck_ok": true,
+  "hidden_passed": 12,
+  "hidden_total": 12,
+  "hidden_failed": [],
+  "probe": {
+    "two_percent": {
+      "carts": 2786,
+      "dependent": 0,
+      "example": ""
+    },
+    "percent_and_fixed": {
+      "carts": 2786,
+      "dependent": 0,
+      "example": ""
+    },
+    "free_cart_total": "0"
+  }
+}

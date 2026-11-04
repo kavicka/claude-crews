@@ -37,6 +37,14 @@ Things agents must never claim, mention or do in your name.
 - <e.g. never mention client X>
 - <e.g. never claim experience with Y>
 
+## Outreach rules
+
+How you may contact people you haven't worked with. Check the law where your recipients are; this is not legal advice.
+
+- <e.g. cold email only to generic company addresses (info@, office@) in countries that require consent; LinkedIn or the contact form otherwise>
+- <e.g. every cold message names where the contact came from and offers an opt-out>
+- <e.g. no follow-up after one unanswered message>
+
 ## Design preferences
 
 Optional. The crew's ui-builder follows this when a project leaves the visual direction open.

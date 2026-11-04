@@ -39,8 +39,8 @@ Base code before either run: 2 / 12 hidden tests.
 |---|---|
 | [base/](base/) | the starting code (4 tests) |
 | [hidden/acceptance.test.ts](hidden/acceptance.test.ts) | the 12 hidden tests |
-| [vibe.diff](vibe.diff) | everything the vibe run changed |
-| [crew.diff](crew.diff) | everything the crew run changed |
+| [original-run/](original-run/) | the code both runs produced, as real patches, with scores (the crew's test file was lost, see there) |
+| [bench/](bench/) | the scripted, repeated version of this comparison |
 | [crew-run/](crew-run/) | each crew step: [plan](crew-run/1-plan.md), [skeptic](crew-run/2-skeptic.md), [checkpoint](crew-run/3-checkpoint.md), [code + tests](crew-run/4-implement-and-test.md), [review + fix](crew-run/5-review.md) |
 
 ## Per-agent numbers (crew)
@@ -61,5 +61,7 @@ Token counts are what Claude Code reports per subagent; most of each is the agen
 ```bash
 cd examples/coupon-demo/base && npm install
 cp ../hidden/acceptance.test.ts src/ && npx vitest run   # 2/12 on the base code
+git init -q && git apply ../original-run/vibe.patch && npx vitest run src/acceptance.test.ts   # 11/12
 ```
-Then apply `vibe.diff` or `crew.diff` to a fresh copy (`git apply ../crew.diff`) and run the hidden tests again.
+
+Use a fresh copy of `base/` for `crew.patch` (12/12). To repeat the whole comparison several times, see [bench/](bench/).

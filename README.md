@@ -152,6 +152,10 @@ Every agent carries its own `model` and `effort` in its frontmatter, so a counci
 - Every claim needs evidence (`file:line`, a URL, a quote). The skeptics and the moderator drop claims that have none.
 - The knowledge base never stores secrets or other people's private data beyond name, role and public profile URL.
 
+### Leads and cold outreach: check the law first
+
+`lead-scout`, `researcher` and `outreach-writer` work with names and roles of real people and draft unsolicited messages. In the EU that is personal data under GDPR, and email marketing falls under national ePrivacy rules; several countries require prior consent even for business-to-business email. The agents keep only business data with its source, add a source and opt-out line to cold messages to the EU, and follow the **Outreach rules** you write in `~/knowledge/profile.md`, flagging any country those rules don't cover. They don't decide what is legal for you. This is not legal advice.
+
 ## Customize
 
 - Edit any agent in `plugins/*/agents/*.md`: change its `model`, `effort`, tools or rules.
