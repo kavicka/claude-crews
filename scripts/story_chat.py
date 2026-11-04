@@ -36,8 +36,8 @@ def face(msg: dict, i: int, x: float, y: float) -> str:
     key = msg.get("avatar")
     if key:
         return f'<g transform="translate({x - 6} {y - 4}) scale(0.46)">{avatar_body(*STYLE[key], uid=f"s{i}", delay=i * .53)}</g>'
-    label = "You" if msg["kind"] == "you" else "?"
-    fill = CREAM if msg["kind"] == "you" else ORANGE
+    label = {"you": "You", "deliver": "✓"}.get(msg["kind"], "?")
+    fill = {"you": CREAM, "deliver": SAGE}.get(msg["kind"], ORANGE)
     return (f'<circle cx="{x + 16}" cy="{y + 17}" r="15" fill="{fill}" stroke="{INK}" stroke-width="2"/>'
             f'<text x="{x + 16}" y="{y + 22}" class="ini">{label}</text>')
 

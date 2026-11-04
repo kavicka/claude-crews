@@ -20,10 +20,12 @@ jobs:
       - name: Repo rules (agents, tools, references, README)
         run: python3 scripts/check_plugins.py
 
-      - name: Avatars are up to date
+      - name: Generated images are up to date
         run: |
           python3 scripts/avatars.py
-          git diff --exit-code -- assets/ || (echo "Run python3 scripts/avatars.py and commit the result" && exit 1)
+          python3 scripts/story_chat.py
+          python3 scripts/bench_chart.py
+          git diff --exit-code -- assets/ || (echo "Run the scripts in scripts/ and commit the result" && exit 1)
 
       - uses: actions/setup-node@v4
         with:

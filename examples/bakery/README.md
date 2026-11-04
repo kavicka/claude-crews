@@ -74,7 +74,41 @@ Files: [whole conversation](runs/quote/conversation.md) · [client file after th
 
 ## 3 · Build: online ordering with pickup slots
 
-CREW_SECTION
+<p align="center"><img src="../../assets/bakery-crew.svg" width="760" alt="Crew workflow as a chat"></p>
+
+**How they decided, before any code.** The **planner** read the site and planned an order form, 30-minute slots with 4 orders each, and orders kept in memory. The **skeptic** answered **GO WITH CHANGES** with evidence from the code: a slot count kept in memory resets on every restart (`npm run dev` restarts on every edit), anyone could fill every slot with fake orders, and an async page route can crash Express 4 (`package.json:12`). It also caught that the planned order number was lowercase while the check for it expected uppercase, so the confirmation would never show.
+
+**What it asked you: the checkpoint.** The crew stops once, before any code ([1-answer.md](runs/crew/1-answer.md)):
+
+> **One decision I need from you:**
+> - **A — no per-slot limit in v1 (recommended):** a slot is only a checked pickup time. The shop email is the record of the order, and the shop phones the customer if a slot gets too busy.
+> - **B — 4 orders per slot:** orders are saved to a local file so the counts survive restarts. The shop email gets a cancel link that frees the slot, and there's a limit on open orders per email address.
+>
+> Reply **A** or **B**, plus any changes to the defaults, and I'll start the coder.
+
+**Lucia's answer** ([2-prompt.md](runs/crew/2-prompt.md)), matching the quote Jana is signing:
+
+> B, with 8 orders per slot saved to a file; no same-day orders, orders for a day close at 14:00 the day before (for Tuesday, on Sunday at 12:00); cakes with 2 days' notice, at most 3; orders up to 14 days ahead; at most 3 open orders per email; no cancel link yet, that's phase 2; closed on 25 and 26 Dec, 1 and 6 Jan.
+
+**How they built and checked it.**
+
+| Round | Agent | What happened |
+|---|---|---|
+| 1 | web-coder | Built slots, the order store (a JSON file), the form in both languages and the emails. |
+| 1 | tester | Wrote edge-case tests (time zones, DST, cut-offs, capacity, escaping). Four failed on an **old bug**: a repeated field in the existing contact form hangs the request, because Express 4 doesn't catch a rejected promise (`src/app.ts:135`). |
+| 1 | web-coder | Fixed it. |
+| 1 | reviewer | **CHANGES REQUIRED.** A short script could book out all 1 920 places of the next two weeks: no per-IP limit, no honeypot. Error pages leaked stack traces, and a double click created two orders. |
+| 2 | web-coder → tester → reviewer | Added a honeypot, a translated error page, `NODE_ENV=production` and a resubmission token. **CHANGES REQUIRED** again: the token fix matched on the token alone, so a customer who went Back, changed the day and resubmitted would silently get the first order. |
+| 3 | web-coder → tester → reviewer | Compared the order content too. **APPROVE WITH NITS**: two rare double-failure cases logged as follow-ups. |
+| — | docs-writer | Updated the site's `CLAUDE.md`. |
+
+**What you get.** Nothing is committed. The crew handed back the [diff](runs/crew/changes.patch), 323 passing tests (235 written plus parameterised cases), clean typecheck, a proposed commit message, the assumptions it made, and the open decisions: a per-IP limit needs to know how the site is deployed, the production mailer is still a console stub, and nobody has agreed how long orders with personal data are kept.
+
+<p align="center"><img src="../../assets/bakery-order-form.png" width="320" alt="The order form the crew built, English version"></p>
+
+**Was it worth it?** It was the most expensive step by far: 45 minutes and $15 for the build alone, most of it in the review loops, and 323 tests is more than a feature this size needs. In exchange it found an old crash nobody had asked about, a way to book out the shop, and a regression introduced by its own fix. Whether that is worth $15 depends on what a bad December weekend would cost the bakery.
+
+Files: [whole conversation](runs/crew/conversation.md) · [final summary](runs/crew/2-answer.md) · [diff](runs/crew/changes.patch) · 53 min · $16.54
 
 ---
 
@@ -84,7 +118,8 @@ CREW_SECTION
 |---|---|---|---|---|
 | Council | optimist, skeptic, engineer, business, client ×2 rounds, moderator | 6 (for the client) | 8 min | $2.53 |
 | Quote | quote-builder ×2, pricing-analyst, skeptic | 6 before, 2 after | 13 min | $3.01 |
-| Crew | CREW_TOTALS |
+| Crew | planner, skeptic, web-coder ×4, tester ×3, reviewer ×3, docs-writer | 1 at the checkpoint, 1 before go-live | 53 min | $16.54 |
+| **All three** | | | **74 min** | **$22.08** |
 
 Costs are what Claude Code reports at list price, subagents included.
 

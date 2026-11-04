@@ -87,14 +87,14 @@ sequenceDiagram
     Crew->>You: ❓ checkpoint: slot capacity A or B?
     You->>Crew: B, 8 per slot, cut-off 14:00 the day before
     Note over Crew: coder and tester build,<br/>reviewer checks the diff
-    Crew->>You: code, tests and a summary; nothing committed
+    Crew->>You: code, tests and a summary, nothing committed
 ```
 
 | Step | What the agents settled among themselves | What they asked you | What you got | Run |
 |---|---|---|---|---|
 | **1 · Decide** `/council:vote` | All five voted against payments at launch. In round 2 the skeptic noticed that everyone had relied on a cake deposit that is taken in the shop, so online cake orders would skip it. The moderator threw out six claims, including a card fee off by half. | Six questions to put to the client before quoting: VAT, content date, last December's no-shows, eKasa, English, cake deposits | Verdict, a recommendation with an optional cake-deposit line, and the full debate in `~/knowledge/council` | 8 min · $2.53 |
 | **2 · Quote** `/office:quote` | The builder priced 3 600 €. The pricing analyst said the hours were short against a similar past project and caught a wrong VAT rate in Lucia's own pricing file. The skeptic showed that cancelled orders would still get baked. The builder cut scope instead of discounting. | Six scope questions before any work; then two things only Lucia can check | A quote in Slovak: phase 1 at 3 500 €, optional phase 2, payment terms, timeline | 13 min · $3.01 |
-| **3 · Build** `/crew:ship` | The planner planned slots with a capacity of 4. The skeptic showed capacity kept in memory resets on every restart, that anyone could fill every slot, and an Express 4 crash. CREW_SETTLED | One decision at the checkpoint: drop slot capacity (A) or persist orders (B) | CREW_GOT | CREW_RUN |
+| **3 · Build** `/crew:ship` | The planner planned slots with a capacity of 4. The skeptic showed capacity kept in memory resets on every restart, that anyone could fill every slot, and an Express 4 crash. After Lucia's answer the tester found an old crash in the contact form; the reviewer sent the code back twice, the second time because a fix for double clicks had broken changed orders, then approved. | One decision at the checkpoint: drop slot capacity (A) or persist orders (B) | Ordering with 30-minute slots in both languages, 323 passing tests, a list of follow-ups, a proposed commit; nothing committed | 53 min · $16.54 |
 
 <details>
 <summary><b>Step 2 as a chat</b>: the questions, the objections and the revised quote</summary>
@@ -103,8 +103,15 @@ sequenceDiagram
 
 <details>
 <summary><b>Step 3 as a chat</b>: the plan, the skeptic, your decision, the review</summary>
-<p align="center"><img src="assets/bakery-crew.svg" width="760" alt="CREW_ALT"></p>
+<p align="center"><img src="assets/bakery-crew.svg" width="760" alt="The crew workflow as a chat: plan, skeptic, the checkpoint question and Lucia's answer, the tester's crash report, two rounds of review and the approval"></p>
 </details>
+
+<details>
+<summary><b>The result</b>: the order form the crew built (English version)</summary>
+<p align="center"><img src="assets/bakery-order-form.png" width="320" alt="The bakery's order form: quantities for seven products with prices, a note that cakes need two days' notice, a pickup time select, name, email, optional phone and note, and a Place order button"></p>
+</details>
+
+The three runs cost $22 together, about two thirds of it in the crew's build and review loops. The [benchmark](#does-the-crew-pay-off-measured) has the numbers on when that pays off.
 
 More to try: `/crew:check` before a commit, `/office:outreach <company>`, `/office:learn <playlist> what can I use from this?`
 

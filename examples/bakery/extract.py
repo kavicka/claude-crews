@@ -57,6 +57,12 @@ def phase_log(path: Path, prompt: str, phase: int) -> list[str]:
             for b in e["message"]["content"]:
                 if b.get("type") == "text" and b["text"].strip():
                     out += ["**Main session:**", "", quote(b["text"]), ""]
+                if b.get("type") == "tool_use" and b["name"] == "SendMessage":
+                    agent = tasks.get(b["input"].get("to", ""), "an agent")
+                    names[b["id"]] = agent
+                    msg = b["input"].get("message", "")
+                    out += [f"<details><summary>→ follow-up to <b>{agent}</b>: {b['input'].get('summary', '')}</summary>",
+                            "", quote(msg if isinstance(msg, str) else json.dumps(msg)), "", "</details>", ""]
                 if b.get("type") == "tool_use" and b["name"] in ("Agent", "Task"):
                     agent = b["input"].get("subagent_type", "general-purpose")
                     names[b["id"]] = agent
@@ -68,19 +74,25 @@ def phase_log(path: Path, prompt: str, phase: int) -> list[str]:
                     body = text_of(b["content"])
                     if "Async agent launched" in body:
                         out += [f"*{names[b['tool_use_id']]} is working in the background.*", ""]
-                    elif b["tool_use_id"] in shown:
+                    elif '"resumedAgentId"' in body or body.strip().startswith('{"success"'):
+                        continue  # SendMessage acknowledgement; the reply arrives as a notification
+                    elif clean(body)[:200] in shown:
                         continue
                     else:
-                        shown.add(b["tool_use_id"])
+                        shown.add(clean(body)[:200])
                         out += [f"**← {names[b['tool_use_id']]}:**", "", quote(body), ""]
         elif e.get("type") == "system" and e.get("subtype") == "task_started":
-            tasks[e.get("task_id", "")] = e.get("subagent_type") or names.get(e.get("tool_use_id"), "agent")
+            agent = e.get("subagent_type") or names.get(e.get("tool_use_id"))
+            if agent:
+                tasks[e.get("task_id", "")] = agent
         elif e.get("type") == "system" and e.get("subtype") == "task_notification" and e.get("summary"):
-            key = e.get("tool_use_id", "") + "|" + e["summary"][:80]
-            if e.get("tool_use_id") in shown or key in shown:
+            key = clean(e["summary"])[:200]
+            if key in shown:
                 continue
-            shown.update({key, e.get("tool_use_id", "")})
-            agent = tasks.get(e.get("task_id", "")) or names.get(e.get("tool_use_id"), "agent")
+            shown.add(key)
+            agent = tasks.get(e.get("task_id", "")) or names.get(e.get("tool_use_id"))
+            if not agent:
+                continue  # a background shell command, not an agent
             out += [f"**← {agent}:**", "", quote(e["summary"]), ""]
     if inner_tools:
         counts = Counter()
