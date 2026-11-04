@@ -4,7 +4,8 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#before-and-after-a-real-run">Before / after</a> ·
+  <a href="#one-story-a-bakery-goes-online">Bakery story</a> ·
+  <a href="#does-the-crew-pay-off-measured">Benchmark</a> ·
   <a href="#the-crews">The crews</a> ·
   <a href="#model-and-effort-routing">Model routing</a> ·
   <a href="examples">Examples</a>
@@ -64,22 +65,20 @@ It creates `~/knowledge/` (your profile, rates, writing voice) from templates, i
 /office:learn https://www.youtube.com/playlist?list=... what can I use from this in my workflow?
 ```
 
-## Before and after: a real run
+## Does the crew pay off? Measured
 
-The same one-sentence task (*"let checkout accept several coupon codes at once"*) on two identical copies of a small TypeScript checkout. One got a single prompt (plain vibe coding with Opus). The other went through `/crew:ship`. Then both were scored against 12 hidden acceptance tests neither had seen.
+The same small task (*"let checkout accept several coupon codes at once"*), five runs per variant, each scored against 12 hidden acceptance tests no run saw. Patches, transcripts and the script are in [examples/coupon-demo](examples/coupon-demo).
 
-<p align="center"><img src="assets/before-after.svg" width="900" alt="Vibe vs crew: hidden tests 11/12 vs 12/12, 11 vs 23 tests, 67 s vs 13.8 min, 96k vs 601k tokens"></p>
+<p align="center"><img src="assets/bench-results.svg" width="900" alt="Hidden tests: one prompt at medium 10.0, at xhigh 10.6, crew 10.2 of 12. Tests written: 11, 14, 21. Cost per run: $0.22, $0.25, $1.46. Time: 0.8, 1.1, 6.9 minutes."></p>
 
-| | One prompt | `/crew:ship` |
-|---|---|---|
-| Hidden tests passed | 11 / 12 | **12 / 12** |
-| Tests afterwards (started with 4) | 11 | **23** |
-| Same coupons in a different order → same price? | ❌ 1035 vs 1036 cents | ✅ |
-| Business rules it asked you about instead of guessing | 0 | 3 |
-| Found that two coupons can make a cart free | no | yes (skeptic) |
-| Agent time / tokens | **67 s / 96 k** | 13.8 min / 601 k |
+| | One prompt · medium | One prompt · xhigh | `/crew:ship` |
+|---|---|---|---|
+| Hidden tests passed (of 12, mean) | 10.0 | **10.6** | 10.2 |
+| Price depends on the order of the codes | 4 / 5 runs | 0 / 5 | 0 / 5 |
+| Tests afterwards (started with 4) | 11 | 14 | **21** |
+| Cost · time per run | **$0.22 · 0.8 min** | $0.25 · 1.1 min | $1.46 · 6.9 min |
 
-**The honest takeaway:** a strong model vibe-coding a small change is good and much cheaper. The crew earns its cost when a wrong answer costs money: it surfaced decisions the single run made silently, and its reviewer caught a pricing bug the single run shipped. Every step, both diffs and the hidden tests are in [examples/coupon-demo](examples/coupon-demo).
+**The honest result:** on a small, well-specified change the crew is not more correct than one prompt at `xhigh`, and it costs about 6× more. It writes more tests and always lists the decisions it took without you; in two runs those were exactly the rules the hidden tests checked. The crew is for work where those open questions matter and you want to answer them before the code exists. The [bakery story](#one-story-a-bakery-goes-online) shows that part.
 
 ## The crews
 

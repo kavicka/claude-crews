@@ -6,15 +6,15 @@ Why claude-crews is built the way it is, what backs each choice, and what would 
 
 - **Decision:** each role (planner, skeptic, coder, tester, reviewer) is its own subagent with its own context, and the main session only orchestrates.
 - **Why:** an agent that reviews code it didn't write, without the author's reasoning in its context, reads the diff the way a colleague would. A plan written down before the code is something the user can check.
-- **Evidence:** the [coupon benchmark](examples/coupon-demo/bench) (BENCH_SUMMARY).
-- **Cost:** BENCH_COST.
-- **Would change it:** if repeated runs on larger tasks show a single strong agent with a review prompt matching the crew's results.
+- **Evidence:** mixed. In the [coupon benchmark](examples/coupon-demo) (5 runs per variant) the crew passed 10.2 of 12 hidden tests on average, one prompt at `xhigh` 10.6, one prompt at `medium` 10.0. The crew wrote more tests (21 against 14) and always listed the decisions it took without the user, but it was not more correct on that small task.
+- **Cost:** about $1.46 and 7 minutes per crew run, against $0.25 and 1 minute for one prompt at `xhigh`, on the coupon task.
+- **Would change it:** the crew is only worth its cost if it wins on tasks with real open questions and more files. That is not measured yet; the [bakery example](examples/bakery) shows what the process looks like on such a task, but it is one run.
 
 ## 2. A skeptic attacks the plan before any code
 
 - **Decision:** `crew:skeptic` reviews the plan, not the code, and every objection needs `file:line` or a quote.
 - **Why:** a wrong plan is cheapest to fix before it is code. The evidence rule keeps the skeptic from inventing objections to look useful.
-- **Evidence:** in the [original run](examples/coupon-demo/crew-run/2-skeptic.md) the skeptic found that typecheck wasn't in the done criteria, and that two coupons can make a cart free. BENCH_SKEPTIC
+- **Evidence:** in the [original run](examples/coupon-demo/crew-run/2-skeptic.md) the skeptic found that typecheck wasn't in the done criteria, and that two coupons can make a cart free. In the benchmark it cut both ways: in two of five runs the skeptic held the plan to "a single string must keep working", which blocked rounding and the zero cap and cost three hidden tests each. Both runs flagged it as a decision for the user, but in unattended mode nobody answered.
 - **Would change it:** transcripts showing the skeptic's objections are rarely folded in, or mostly restate the planner's open questions.
 
 ## 3. One human checkpoint
@@ -27,7 +27,7 @@ Why claude-crews is built the way it is, what backs each choice, and what would 
 
 - **Decision:** Opus at `xhigh` for the planner, skeptic, reviewer and moderator; Opus at `high` for coders; Sonnet for the tester, research and council members; Haiku for lookups.
 - **Why:** judgement-heavy roles that gate everything else get the most reasoning; well-specified work gets cheaper models.
-- **Evidence:** weak. The tiers are a hypothesis and have not been ablated role by role. The benchmark compares one agent at `medium` and `xhigh` (BENCH_EFFORT); that says something about effort, not about which role needs it.
+- **Evidence:** weak. The tiers are a hypothesis and have not been ablated role by role. The benchmark compares one agent at `medium` and `xhigh`: at `medium`, 4 of 5 runs made the price depend on the order of the coupon codes, at `xhigh` none did, for about $0.03 more per run. That says effort matters, not which role needs it.
 - **Next test:** the crew with the skeptic and reviewer on `high`, and on Sonnet, five runs each.
 
 ## 5. The council debates in rounds and votes
