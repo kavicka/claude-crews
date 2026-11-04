@@ -7,6 +7,7 @@ description: Feeds the knowledge base. Digests YouTube videos or playlists, arti
 
 Sources and focus: $ARGUMENTS
 
+0. **Transcripts.** The librarians have no MCP tools. If a transcript or subtitles tool is connected in this session, fetch the YouTube transcripts here, save each to a temp file, and pass the paths in the briefs.
 1. **Split the work.** One `office:librarian` per 3–4 sources, run in parallel (at most 4 librarians). Each brief: the URLs or file paths, the user's focus question, and "digest each source into ~/knowledge/sources, do not write the synthesis".
 2. **Synthesis.** When all are done, one more `office:librarian`, run one tier up (`model: opus`, `effort: high`) because it merges the others' work, with the list of digest files: "write the synthesis note comparing these with the user's current setup and rank the improvements".
 3. **Hand back** in chat:

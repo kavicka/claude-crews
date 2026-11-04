@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Teams of Claude Code subagents with clear roles, a skeptic in every team, and model/effort routing per role.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "crew",
       "source": "./plugins/crew",
-      "description": "Dev crew: planner, skeptic, coders, tester, reviewer, docs-writer, plus /crew:ship and /crew:check."
+      "description": "Dev crew: planner, skeptic, coders for any stack, tester, reviewer, docs-writer, plus /crew:ship and /crew:check."
     },
     {
       "name": "office",

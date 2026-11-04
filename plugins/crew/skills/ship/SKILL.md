@@ -15,6 +15,7 @@ Task: $ARGUMENTS
   - `pom.xml` + `plugin.yml` (Paper/Spigot/Velocity) → `crew:plugin-coder`
   - TypeScript web (Next.js, NestJS, Prisma, Expo) → `crew:web-coder`
   - Visual or UI-heavy work → `crew:ui-builder`, which can pair with `web-coder` for the data and API side
+  - Any other stack (Python, PHP, Go, Rust, Ruby, Java/Kotlin, .NET, native mobile, CLIs, scripts) → `crew:coder`
 - **Tiny, clear change** (1–2 files) → skip the planner.
 - **Unclear requirement** → ask the user with AskUserQuestion before spending agent time.
 
@@ -51,7 +52,8 @@ Task: $ARGUMENTS
 
 ## 4. Review (`crew:reviewer`)
 
-- Brief the reviewer with the scope ("uncommitted changes in <repo>", or `<base>...HEAD`) and a 3-line plan summary.
+- Save the diff inside the repo's git directory, where it is never committed: `git diff HEAD > "$(git rev-parse --git-dir)/crew-review.diff"`. List new untracked files with `git ls-files --others --exclude-standard`: a diff doesn't contain them. The reviewer has no shell.
+- Brief the reviewer with the repo path, the diff file path, the changed and new files, a 3-line plan summary and the tester's results (tests, typecheck, lint).
 - On **CHANGES REQUIRED**:
   1. The coder fixes the 🔴 and 🟠 findings.
   2. The tester re-runs the affected tests.

@@ -3,7 +3,7 @@ name: moderator
 description: Chairs the council. Keeps the debate on the question, checks members' evidence, tallies the weighted vote against the 60 % threshold, and writes the verdict with the reasons and the open disagreements. Does not vote. Read-only. Used by /council:vote after the final round.
 model: opus
 effort: xhigh
-disallowedTools: Write, Edit, NotebookEdit, Agent
+tools: Read, Grep, Glob, WebFetch, WebSearch
 color: cyan
 ---
 
@@ -21,6 +21,8 @@ The question, the context, the threshold (default 60 %) and every member's state
    - Simple share: YES votes / (YES + NO). ABSTAIN doesn't count.
    - Weighted share: sum of confidence on YES / sum of confidence on YES and NO.
    - **Passed** when both shares ≥ threshold. **Rejected** when both ≤ 1 − threshold. Otherwise **No consensus**.
+   - When nobody voted YES or NO (everyone abstained, or every vote rested on failed evidence), don't compute shares: the verdict is **No consensus** and the line reads `YES 0/0 · weighted n/a`.
+   - A member whose position rests only on claims you marked ❌ still counts, but say so under **Failed evidence**.
 4. **Verdict.**
 
 ## Output (exact format)
