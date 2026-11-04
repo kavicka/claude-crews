@@ -1,0 +1,171 @@
+diff --git a/src/checkout.test.ts b/src/checkout.test.ts
+index a2a65bc..114caff 100644
+--- a/src/checkout.test.ts
++++ b/src/checkout.test.ts
+@@ -28,3 +28,133 @@ describe("checkout", () => {
+     expect(() => checkout(cart, "NOPE")).toThrow("Unknown coupon");
+   });
+ });
++
++const small = [{ sku: "tee", priceCents: 2000, qty: 1 }];
++const odd = [{ sku: "odd", priceCents: 4405, qty: 1 }];
++const summer = new Date("2025-08-01");
++const afterSummer = new Date("2025-10-01");
++
++describe("checkout with multiple coupons", () => {
++  it("treats a one-element array like the single string", () => {
++    expect(checkout(cart, ["WELCOME10"])).toEqual(checkout(cart, "WELCOME10"));
++    expect(checkout(cart, ["WELCOME10"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 440,
++      taxCents: 792,
++      totalCents: 4752,
++    });
++  });
++
++  it("sums a percent and a fixed coupon", () => {
++    expect(checkout(cart, ["WELCOME10", "SAVE5"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 940,
++      taxCents: 692,
++      totalCents: 4152,
++    });
++  });
++
++  it("is order-independent", () => {
++    expect(checkout(cart, ["SAVE5", "WELCOME10"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 940,
++      taxCents: 692,
++      totalCents: 4152,
++    });
++  });
++
++  it("adds percents against the original subtotal", () => {
++    expect(checkout(cart, ["WELCOME10", "SUMMER15"], summer)).toEqual({
++      subtotalCents: 4400,
++      discountCents: 1100,
++      taxCents: 660,
++      totalCents: 3960,
++    });
++  });
++
++  it("evaluates each coupon's minimum against the original subtotal", () => {
++    expect(checkout(cart, ["GIFT25", "SAVE5"])).toEqual({
++      subtotalCents: 4400,
++      discountCents: 3000,
++      taxCents: 280,
++      totalCents: 1680,
++    });
++  });
++
++  it("does not clamp a stacked discount at the subtotal (current behaviour)", () => {
++    expect(checkout(small, ["GIFT25", "WELCOME10"])).toEqual({
++      subtotalCents: 2000,
++      discountCents: 2700,
++      taxCents: -140,
++      totalCents: -840,
++    });
++  });
++
++  it("contributes 0 for a coupon below its minimum subtotal without throwing", () => {
++    expect(checkout(small, ["SAVE5", "WELCOME10"])).toEqual({
++      subtotalCents: 2000,
++      discountCents: 200,
++      taxCents: 360,
++      totalCents: 2160,
++    });
++  });
++
++  it("dedupes repeated codes", () => {
++    expect(checkout(cart, ["WELCOME10", "WELCOME10"]).discountCents).toBe(440);
++  });
++
++  it("treats undefined, empty string, [] and [''] as no coupon", () => {
++    const none = checkout(cart);
++    expect(checkout(cart, undefined)).toEqual(none);
++    expect(checkout(cart, "")).toEqual(none);
++    expect(checkout(cart, [])).toEqual(none);
++    expect(checkout(cart, [""])).toEqual(none);
++  });
++
++  it("ignores empty entries among real codes", () => {
++    expect(checkout(cart, ["", "WELCOME10"]).discountCents).toBe(440);
++  });
++
++  it("throws for an unknown code anywhere in the list", () => {
++    expect(() => checkout(cart, ["WELCOME10", "NOPE"])).toThrow("Unknown coupon: NOPE");
++  });
++
++  it("throws on the first bad code in given order", () => {
++    expect(() => checkout(cart, ["NOPE", "SUMMER15"], afterSummer)).toThrow(
++      "Unknown coupon: NOPE",
++    );
++    expect(() => checkout(cart, ["SUMMER15", "NOPE"], afterSummer)).toThrow(
++      "Coupon expired: SUMMER15",
++    );
++  });
++
++  it("throws for an expired code alongside a valid one", () => {
++    expect(() => checkout(cart, ["WELCOME10", "SUMMER15"], afterSummer)).toThrow(
++      "Coupon expired: SUMMER15",
++    );
++  });
++
++  it("accepts a readonly array", () => {
++    const codes = ["WELCOME10", "SAVE5"] as const;
++    expect(checkout(cart, codes).discountCents).toBe(940);
++  });
++});
++
++describe("checkout single-string behaviour (regression)", () => {
++  it("does not round a fractional percent discount", () => {
++    expect(checkout(odd, "WELCOME10").discountCents).toBe(440.5);
++  });
++
++  it("does not clamp a fixed discount larger than the subtotal", () => {
++    expect(checkout(small, "GIFT25")).toEqual({
++      subtotalCents: 2000,
++      discountCents: 2500,
++      taxCents: -100,
++      totalCents: -600,
++    });
++  });
++
++  it("gives 0 for a fixed coupon below its minimum", () => {
++    expect(checkout(small, "SAVE5").discountCents).toBe(0);
++  });
++});
+diff --git a/src/checkout.ts b/src/checkout.ts
+index 33a0224..40f4b6e 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -46,9 +46,26 @@ export function discountFor(coupon: Coupon, amountCents: number): number {
+   return coupon.kind === "percent" ? (amountCents * coupon.value) / 100 : coupon.value;
+ }
+ 
+-export function checkout(items: Item[], code?: string, now: Date = new Date()): Receipt {
++/**
++ * Computes a receipt for `items`, applying zero or more coupon codes.
++ *
++ * - `codes` may be a single code or an array of codes. Empty strings and
++ *   duplicate codes are ignored (first occurrence wins; no trimming or case-folding).
++ * - Every code is validated before any math happens; throws on the first
++ *   unknown or expired code, in the order given.
++ * - Each coupon is evaluated independently against the original subtotal
++ *   (including its `minSubtotalCents` threshold) and the discounts are summed.
++ */
++export function checkout(
++  items: Item[],
++  codes?: string | readonly string[],
++  now: Date = new Date(),
++): Receipt {
+   const subtotalCents = subtotal(items);
+-  const discountCents = code ? discountFor(findCoupon(code, now), subtotalCents) : 0;
++  const requested = typeof codes === "string" ? [codes] : codes ?? [];
++  const list = [...new Set(requested.filter((c) => c !== ""))];
++  const coupons = list.map((c) => findCoupon(c, now));
++  const discountCents = coupons.reduce((sum, c) => sum + discountFor(c, subtotalCents), 0);
+   const afterDiscount = subtotalCents - discountCents;
+   const taxCents = Math.round(afterDiscount * TAX_RATE);
+   return {
