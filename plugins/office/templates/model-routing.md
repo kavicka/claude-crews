@@ -7,7 +7,7 @@ Effort levels: low < medium < high < xhigh < max. Coding and long agentic work g
 | Tier | Model · effort | Use for | Agents with this tier set |
 |---|---|---|---|
 | **Critical** | opus · xhigh | Security review, final code review, challenging a plan, architecture decisions, final verdicts | crew:planner, crew:skeptic, crew:reviewer, council:skeptic, council:moderator |
-| **Build** | opus · high | Writing or changing production code, money decisions (quotes) | crew:web-coder, crew:plugin-coder, crew:ui-builder, office:quote-builder |
+| **Build** | opus · high | Writing or changing production code, money decisions (quotes) | crew:web-coder, crew:coder, crew:ui-builder, office:quote-builder |
 | **Craft** | opus · medium | Writing in the user's voice | office:outreach-writer, office:copywriter |
 | **Analyst** | sonnet · medium (high for tests) | Research, scoring, debate, docs, data analysis, writing tests | crew:tester (high), crew:docs-writer, office:researcher, office:pricing-analyst, office:job-scout, office:lead-scout, office:librarian, council:optimist, council:engineer, council:business, council:client |
 | **Fast** | haiku · low (medium when it must judge) | Code and file search, grep across repos, link and sitemap checks, screenshots, extracting fields, formatting, summarising one file | Explore and other lookups |

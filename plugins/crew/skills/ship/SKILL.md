@@ -12,7 +12,6 @@ Task: $ARGUMENTS
 ## 0. Triage
 
 - **Pick the coder by repo type:**
-  - `pom.xml` + `plugin.yml` (Paper/Spigot/Velocity) → `crew:plugin-coder`
   - TypeScript web (Next.js, NestJS, Prisma, Expo) → `crew:web-coder`
   - Visual or UI-heavy work → `crew:ui-builder`, which can pair with `web-coder` for the data and API side
   - Any other stack (Python, PHP, Go, Rust, Ruby, Java/Kotlin, .NET, native mobile, CLIs, scripts) → `crew:coder`

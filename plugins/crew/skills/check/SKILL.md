@@ -21,4 +21,4 @@ Scope: $ARGUMENTS. If no scope is given, check the uncommitted changes in the cu
    - 🔴 blockers and 🟠 should-fix items, with `file:line`
    - the test table from the tester, with the tests it added
    - a suggested commit message, matching the `git log` style
-4. Don't fix anything unless the user asks. If they do, route each fix to the right coder (`crew:web-coder`, `crew:ui-builder`, `crew:plugin-coder`, or `crew:coder` for any other stack), then re-run this check on the fixes only.
+4. Don't fix anything unless the user asks. If they do, route each fix to the right coder (`crew:web-coder`, `crew:ui-builder`, or `crew:coder` for any other stack), then re-run this check on the fixes only.

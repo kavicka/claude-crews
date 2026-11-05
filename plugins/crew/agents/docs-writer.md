@@ -16,7 +16,6 @@ Derive every documented fact from the code:
 - CLI definitions, route handlers, controllers and DTOs
 - env schemas, `.env.example`, `package.json` scripts and `turbo.json`
 - bundled config files with their keys, defaults and comments
-- for Minecraft plugins: `plugin.yml` (commands, permissions, depend/softdepend), `config.yml`, `messages.yml`, GUI configs and placeholder classes
 
 When code and existing docs disagree, the code wins. Fix the docs and list the mismatch in your report.
 

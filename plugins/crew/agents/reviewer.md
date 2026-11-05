@@ -40,12 +40,11 @@ Read the code surrounding each hunk in the working tree, not just the hunk. Read
 - **Performance:**
   - N+1 queries, missing `select` or indexes, unbounded queries or missing pagination
   - client bundle bloat and needless `"use client"`
-  - Minecraft: blocking IO on the main thread, heavy per-tick work, unbounded caches, listeners and tasks never cleaned up
+  - blocking IO on hot paths, unbounded caches, listeners, timers and subscriptions never cleaned up
 - **Conventions:**
   - mirrors existing patterns
   - i18n keys present in all locales
   - new config keys have defaults and fallbacks
-  - permissions declared in `plugin.yml`
   - Checkstyle rules followed
   - no dead code and no unrelated churn
 - **Tests:**

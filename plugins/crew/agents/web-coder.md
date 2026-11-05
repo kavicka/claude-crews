@@ -1,6 +1,6 @@
 ---
 name: web-coder
-description: Implements features and fixes in TypeScript web projects. Covers Next.js App Router, NestJS, Prisma/Drizzle, zod, pnpm + Turborepo monorepos and Expo/React Native. Use for backend, API, data and app-logic work in TypeScript. Prefer ui-builder for visual or UI-heavy work, plugin-coder for Minecraft/Java and coder for any other stack.
+description: Implements features and fixes in TypeScript web projects. Covers Next.js App Router, NestJS, Prisma/Drizzle, zod, pnpm + Turborepo monorepos and Expo/React Native. Use for backend, API, data and app-logic work in TypeScript. Prefer ui-builder for visual or UI-heavy work and coder for any other stack.
 model: opus
 effort: high
 memory: local

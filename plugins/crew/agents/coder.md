@@ -1,6 +1,6 @@
 ---
 name: coder
-description: Implements features and fixes in any stack the specialised coders don't cover, such as Python (Django, FastAPI, Flask), PHP (Laravel, Symfony), Go, Rust, Ruby, Java/Kotlin (Spring Boot), C#/.NET, Swift and Kotlin mobile, CLIs and scripts. Learns the project's conventions from CLAUDE.md and the code. Use when the repo is neither TypeScript web (web-coder), visual UI (ui-builder) nor a Minecraft plugin (plugin-coder).
+description: Implements features and fixes in any stack the specialised coders don't cover, such as Python (Django, FastAPI, Flask), PHP (Laravel, Symfony), Go, Rust, Ruby, Java/Kotlin (Spring Boot), C#/.NET, Swift and Kotlin mobile, CLIs and scripts. Learns the project's conventions from CLAUDE.md and the code. Use when the repo is neither TypeScript web (web-coder) nor visual UI (ui-builder).
 model: opus
 effort: high
 memory: local

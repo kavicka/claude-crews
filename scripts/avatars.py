@@ -198,7 +198,6 @@ AGENTS = [
     ("crew", "skeptic", "bean", ORANGE, "skeptic", "smirk", "question", "opus · xhigh"),
     ("crew", "web-coder", "round", SAGE, "dot", "smile", "code", "opus · high"),
     ("crew", "ui-builder", "drop", LILAC, "wide", "smile", "brush", "opus · high"),
-    ("crew", "plugin-coder", "square", TEAL, "dot", "flat", "block", "opus · high"),
     ("crew", "tester", "pill", MUSTARD, "wide", "o", "tube", "sonnet · high"),
     ("crew", "reviewer", "round", CLAY, "glasses", "flat", "check", "opus · xhigh"),
     ("crew", "docs-writer", "ghost", CREAM, "sleepy", "smile", "book", "sonnet · medium"),

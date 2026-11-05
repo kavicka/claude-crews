@@ -56,7 +56,7 @@ Why claude-crews is built the way it is, what backs each choice, and what would 
 - **Decision:** results come from [bench/run.py](examples/coupon-demo/bench/run.py): fresh repo per run, real `git diff`, transcript, scripted scoring, hidden tests copied in last.
 - **Before:** the original demo saved diffs through a compacting diff tool. They were not valid patches and one was truncated, so the published result couldn't be reproduced ([original-run](examples/coupon-demo/original-run)).
 
-## 9. A Minecraft specialist next to a general coder
+## 9. One general coder next to the TypeScript specialists
 
-- **Decision:** `plugin-coder` (Paper/Spigot/Velocity) stays a specialist; `coder` (1.1.0) covers every other stack the TypeScript and UI agents don't.
-- **Why:** the crew started from the author's own projects, which include Minecraft plugins; the general coder was added when the crew went public and other stacks had nowhere to go.
+- **Decision:** `web-coder` and `ui-builder` stay specialists for TypeScript web and visual UI; `coder` (1.1.0) covers every other stack, Java and Kotlin included.
+- **Why:** most work in the author's projects is TypeScript web, where a specialist pays off. Other stacks are too varied for one specialist each, so a general coder that reads the project's conventions handles them.

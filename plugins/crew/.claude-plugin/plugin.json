@@ -1,7 +1,7 @@
 {
   "name": "crew",
   "version": "1.1.0",
-  "description": "Dev crew: planner, skeptic, coder, web-coder, ui-builder, plugin-coder, tester, reviewer and docs-writer agents, each with its own model and effort, plus /crew:ship (plan → challenge → your OK → code → test → review) and /crew:check (test + review before commit).",
+  "description": "Dev crew: planner, skeptic, coder, web-coder, ui-builder, tester, reviewer and docs-writer agents, each with its own model and effort, plus /crew:ship (plan → challenge → your OK → code → test → review) and /crew:check (test + review before commit).",
   "author": {
     "name": "Adam Krampl",
     "url": "https://krampl.dev"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/kavicka/claude-crews",
   "repository": "https://github.com/kavicka/claude-crews",
   "license": "MIT",
-  "keywords": ["agents", "subagents", "code-review", "planning", "testing", "nextjs", "nestjs", "minecraft"]
+  "keywords": ["agents", "subagents", "code-review", "planning", "testing", "nextjs", "nestjs"]
 }

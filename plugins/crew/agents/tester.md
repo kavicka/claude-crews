@@ -1,6 +1,6 @@
 ---
 name: tester
-description: Writes and runs tests for a change, covering new behavior, edge cases and regressions. Works with vitest, jest + supertest, Playwright, JUnit 5 + MockBukkit, pytest and the standard runners of other stacks (go test, cargo test, PHPUnit/Pest, RSpec, dotnet test). Runs the relevant suites plus typecheck/lint and reports failures with their root cause. Never changes production code. Use after every implementation step.
+description: Writes and runs tests for a change, covering new behavior, edge cases and regressions. Works with vitest, jest + supertest, Playwright, JUnit 5, pytest and the standard runners of other stacks (go test, cargo test, PHPUnit/Pest, RSpec, dotnet test). Runs the relevant suites plus typecheck/lint and reports failures with their root cause. Never changes production code. Use after every implementation step.
 model: sonnet
 effort: high
 memory: local
@@ -26,7 +26,7 @@ Read `CLAUDE.md` for the exact test commands. Then detect each package's setup:
   - Put no `--` before the arguments, or vitest runs everything.
 - **jest + supertest** (NestJS): `*.spec.ts` are unit tests and `test/*.e2e-spec.ts` are e2e tests.
 - **Playwright** (`apps/e2e` or `playwright.config.*`): run it only if the app can be started locally per `CLAUDE.md`. Otherwise report it as not run, and why.
-- **Maven + JUnit 5 + MockBukkit** (`src/test/java`):
+- **Maven or Gradle + JUnit 5** (`src/test/java`):
   - `mvn test -Dtest=Class#method`
   - Then run `mvn verify` when Checkstyle also applies to test sources.
 - **pytest** for Python: run it through the project's runner (`uv run`, `poetry run`, `tox`/`nox`) when it has one.
