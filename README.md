@@ -56,6 +56,27 @@ Then, once:
 
 It creates `~/knowledge/` (your profile, rates, writing voice) from templates, interviews you to fill it in, and optionally installs the [model-routing rules](plugins/office/templates/model-routing.md) into `~/.claude/`. The crew plugin works without it.
 
+## Not on Claude Code?
+
+`export/` holds the same roles and workflows for other agents, generated from these plugins:
+
+```bash
+git clone https://github.com/kavicka/claude-crews.git
+cd claude-crews/export
+./install.sh codex                 # OpenAI Codex CLI, user-wide
+./install.sh copilot /path/to/repo # GitHub Copilot in VS Code, per repo
+./install.sh cursor  /path/to/repo # Cursor, per repo
+./install.sh generic /path/to/repo # plain prompt files for any other agent
+```
+
+You then call them as `/crew-ship`, `/crew-check`, `/council-vote`, `/office-quote`, and so on.
+
+Those hosts have no subagents, so each workflow plays the roles one at a time in a single session: it
+re-reads the role file before each step and must judge only from files, diffs and command output. That
+is weaker than the Claude Code build, where every role is a fresh agent that cannot see the others'
+reasoning — a review from the same context is a second opinion, not an independent one. Model and
+effort routing, tool allowlists and agent memory are gone too; see [`export/README.md`](export/README.md).
+
 ## One story: a bakery goes online
 
 A small family bakery takes 70 pre-orders a week by phone and Instagram and wants customers to order online and pick a time to collect. Its web developer, Lucia, runs all three crews, in the order a real project goes: decide, quote, build.
@@ -223,7 +244,8 @@ plugins/
             templates: knowledge/ (profile, pricing, voice, …), model-routing.md
   council/  agents: optimist, skeptic, engineer, business, client, moderator
             skills: vote
-scripts/    check_plugins.py (repo rules, run in CI), avatars.py, council_chat.py
+export/     the same crews for Codex CLI, Copilot, Cursor and any other agent (generated)
+scripts/    check_plugins.py (repo rules, run in CI), export.mjs (builds export/), avatars.py, council_chat.py
 examples/   bakery (one story through all three crews, recorded), coupon-demo (benchmark with hidden tests), council-demo
 ```
 
@@ -231,7 +253,7 @@ examples/   bakery (one story through all three crews, recorded), coupon-demo (b
 
 ## Contributing
 
-Issues and PRs are welcome, especially new real-world examples with numbers, and specialist agents for stacks that now go to the general `coder` (Python, Go, mobile). Run `python3 scripts/check_plugins.py` and `claude plugin validate .` before opening a PR; CI runs both. Please keep every agent's rule that it never sends, commits or publishes anything.
+Issues and PRs are welcome, especially new real-world examples with numbers, and specialist agents for stacks that now go to the general `coder` (Python, Go, mobile). Run `python3 scripts/check_plugins.py`, `node scripts/export.mjs` and `claude plugin validate .` before opening a PR; CI runs all three, and the export must be committed with the change that caused it. Please keep every agent's rule that it never sends, commits or publishes anything.
 
 ## License
 

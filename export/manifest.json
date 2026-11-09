@@ -1,0 +1,67 @@
+{
+  "generatedFrom": "claude-crews",
+  "targets": {
+    "codex": "OpenAI Codex CLI",
+    "copilot": "GitHub Copilot (VS Code)",
+    "cursor": "Cursor",
+    "generic": "Any other agent (Aider, Cline, opencode, Gemini CLI, plain prompts)"
+  },
+  "packs": {
+    "council": {
+      "description": "Decision council: optimist, skeptic, engineer, business and client agents debate a question in rounds and vote with confidence; a moderator checks the evidence and tallies against a 60 % threshold. Run with /council-vote. Every debate is logged to ~/knowledge/council.",
+      "version": "1.1.0",
+      "roles": [
+        "business",
+        "client",
+        "engineer",
+        "moderator",
+        "optimist",
+        "skeptic"
+      ],
+      "workflows": [
+        "vote"
+      ]
+    },
+    "crew": {
+      "description": "Dev crew: planner, skeptic, coder, web-coder, ui-builder, tester, reviewer and docs-writer agents, each with its own model and effort, plus /crew-ship (plan → challenge → your OK → code → test → review) and /crew-check (test + review before commit).",
+      "version": "1.1.0",
+      "roles": [
+        "coder",
+        "docs-writer",
+        "planner",
+        "reviewer",
+        "skeptic",
+        "tester",
+        "ui-builder",
+        "web-coder"
+      ],
+      "workflows": [
+        "check",
+        "ship"
+      ]
+    },
+    "office": {
+      "description": "Business crew for freelancers and small teams: researcher, quote-builder, pricing-analyst, outreach-writer, copywriter, lead-scout, job-scout and librarian agents, plus /office-setup, /office-quote, /office-outreach, /office-learn and the lead, site and job desks. Agents answer from your ~/knowledge base and never send, submit or publish anything.",
+      "version": "1.1.0",
+      "roles": [
+        "copywriter",
+        "job-scout",
+        "lead-scout",
+        "librarian",
+        "outreach-writer",
+        "pricing-analyst",
+        "quote-builder",
+        "researcher"
+      ],
+      "workflows": [
+        "job-desk",
+        "lead-desk",
+        "learn",
+        "outreach",
+        "quote",
+        "setup",
+        "site-desk"
+      ]
+    }
+  }
+}

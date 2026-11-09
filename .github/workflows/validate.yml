@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Portable export is up to date
+        run: node scripts/export.mjs --check
+
       # Pinned: newer validators add checks; bump deliberately.
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.318
